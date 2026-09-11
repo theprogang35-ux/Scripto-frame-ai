@@ -1,0 +1,2 @@
+- [Clerk Google OAuth](clerk-google-oauth.md) — Use redirect-based OAuth for browser previews; embedded browsers cannot complete Google sign-in.
+- [Gemini provider checks](gemini-provider-checks.md) — Validate live Gemini credentials and model availability; provider keys can be suspended and model IDs can sunset.

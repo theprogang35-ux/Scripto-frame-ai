@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "AI Character Studio"
+version = "1.0.0"
+id = "artifacts/anime-ai-studio"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21823
+
+[services.development]
+run = "pnpm --filter @workspace/anime-ai-studio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/anime-ai-studio", "run", "build" ]
+publicDir = "artifacts/anime-ai-studio/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21823"
+BASE_PATH = "/"
