@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getAuth } from "@clerk/express";
+import { getUserId } from "../lib/auth";
 
 const router = Router();
 
@@ -82,7 +82,7 @@ function pcmToWav(pcmBuffer: Buffer, sampleRate = 24000, numChannels = 1, bitsPe
 
 // POST /api/tts
 router.post("/tts", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const { text, characterId } = req.body;

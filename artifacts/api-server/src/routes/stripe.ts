@@ -1,13 +1,9 @@
 import { Router, type IRouter, type Request } from "express";
-import { getAuth } from "@clerk/express";
 import { getUncachableStripeClient } from "../stripeClient";
+import { getUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 const PREMIUM_LOOKUP_KEY = "ai_video_generation_premium_monthly";
-
-function getUserId(req: Request) {
-  return getAuth(req).userId;
-}
 
 async function getOrCreateCustomer(stripe: Awaited<ReturnType<typeof getUncachableStripeClient>>, userId: string) {
   const existing = await stripe.customers.search({

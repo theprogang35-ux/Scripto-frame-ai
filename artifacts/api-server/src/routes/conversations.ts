@@ -10,7 +10,7 @@ import {
   ListMessagesParams,
 } from "@workspace/api-zod";
 import { eq, desc, and } from "drizzle-orm";
-import { getAuth } from "@clerk/express";
+import { getUserId } from "../lib/auth";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const router = Router();
@@ -236,7 +236,7 @@ CRITICAL RULES — FOLLOW ALWAYS:
 
 // GET /api/conversations
 router.get("/conversations", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const conversations = await db
@@ -250,7 +250,7 @@ router.get("/conversations", async (req, res) => {
 
 // POST /api/conversations
 router.post("/conversations", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const parsed = CreateConversationBody.safeParse(req.body);
@@ -266,7 +266,7 @@ router.post("/conversations", async (req, res) => {
 
 // GET /api/conversations/:id
 router.get("/conversations/:id", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const params = GetConversationParams.safeParse({ id: Number(req.params.id) });
@@ -290,7 +290,7 @@ router.get("/conversations/:id", async (req, res) => {
 
 // DELETE /api/conversations/:id
 router.delete("/conversations/:id", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const params = DeleteConversationParams.safeParse({ id: Number(req.params.id) });
@@ -306,7 +306,7 @@ router.delete("/conversations/:id", async (req, res) => {
 
 // GET /api/conversations/:id/messages/list
 router.get("/conversations/:id/messages/list", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const params = ListMessagesParams.safeParse({ id: Number(req.params.id) });
@@ -323,7 +323,7 @@ router.get("/conversations/:id/messages/list", async (req, res) => {
 
 // POST /api/conversations/:id/messages  (SSE streaming)
 router.post("/conversations/:id/messages", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const params = SendMessageParams.safeParse({ id: Number(req.params.id) });
@@ -390,7 +390,7 @@ router.post("/conversations/:id/messages", async (req, res) => {
 
 // GET /api/history/recent
 router.get("/history/recent", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const conversations = await db

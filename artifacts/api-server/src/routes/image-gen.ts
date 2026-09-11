@@ -1,5 +1,5 @@
 import { Router } from "express";
-import { getAuth } from "@clerk/express";
+import { getUserId } from "../lib/auth";
 
 const router = Router();
 
@@ -26,7 +26,7 @@ const SIZE_PROMPTS: Record<string, string> = {
 };
 
 router.post("/generate-image", async (req, res) => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
   const { description, size = "square", style = "anime" } = req.body;

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
-import { getAuth } from "@clerk/express";
+import { getUserId } from "../lib/auth";
 import { getPremiumState } from "./stripe";
 
 const router: IRouter = Router();
@@ -83,7 +83,7 @@ function findVideoUri(operation: Record<string, any>) {
 }
 
 router.post("/generate-video", async (req, res): Promise<void> => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Sign in required" });
     return;
@@ -195,7 +195,7 @@ router.post("/generate-video", async (req, res): Promise<void> => {
 });
 
 router.get("/generated-videos/:id", async (req, res): Promise<void> => {
-  const { userId } = getAuth(req);
+  const userId = getUserId(req);
   if (!userId) {
     res.status(401).json({ error: "Sign in required" });
     return;

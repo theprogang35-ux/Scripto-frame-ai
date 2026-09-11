@@ -1,3 +1,4 @@
 - [Clerk Google OAuth](clerk-google-oauth.md) — Use redirect-based OAuth for browser previews; embedded browsers cannot complete Google sign-in.
 - [Gemini provider checks](gemini-provider-checks.md) — Validate live Gemini credentials and model availability; provider keys can be suspended and model IDs can sunset.
 - [Workspace package age policy](workspace-package-age.md) — Dependency installs enforce a one-day release age; choose the newest mature release instead of bypassing the guard.
+- [WebGL preview fallback](webgl-preview-fallback.md) — Browser previews may not expose WebGL; keep R3F views behind capability detection with a useful static fallback.

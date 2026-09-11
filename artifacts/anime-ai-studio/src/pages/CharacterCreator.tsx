@@ -2,6 +2,7 @@ import { useState, useRef, useCallback } from "react";
 import { ArrowLeft, Download, RotateCcw, Palette, Sparkles } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
+import { AnimeCharacterBuilder } from "@/components/AnimeCharacterBuilder";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 interface CharState {
@@ -636,6 +637,11 @@ export function CharacterCreatorPage() {
             <span className="text-white">{downloading ? "..." : "PNG"}</span>
           </button>
         </div>
+      </div>
+
+      {/* New 3D builder — the original creator controls remain below */}
+      <div className="px-3 pb-5 sm:px-4">
+        <AnimeCharacterBuilder />
       </div>
 
       {/* Original character concept */}
