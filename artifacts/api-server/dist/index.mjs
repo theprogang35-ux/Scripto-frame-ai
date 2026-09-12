@@ -70259,6 +70259,16 @@ function providerError2(data, status) {
   const message = data?.error?.message;
   return typeof message === "string" ? message : `Image provider request failed (${status})`;
 }
+function userFacingProviderError(data, status) {
+  const message = providerError2(data, status);
+  if (status === 429 || /quota|rate limit|limit:\s*0/i.test(message)) {
+    return "Gemini image quota is unavailable for this project. Add billing or use a Gemini project with image generation enabled.";
+  }
+  if (status === 401 || status === 403) {
+    return "The Gemini key cannot access image generation. Check its project permissions and billing.";
+  }
+  return message;
+}
 function isRetryable2(status) {
   return [401, 403, 408, 429, 500, 502, 503, 504].includes(status);
 }
@@ -70298,7 +70308,7 @@ router4.post("/generate-image", async (req, res) => {
       );
       if (!response.ok) {
         const err = await readJson2(response);
-        lastError = providerError2(err, response.status);
+        lastError = userFacingProviderError(err, response.status);
         if (isRetryable2(response.status) && attempt < GEMINI_KEYS3.length - 1) continue;
         console.error("Image gen API error:", { status: response.status, message: lastError });
         return res.status(response.status === 429 ? 429 : 502).json({ error: lastError });
