@@ -4,18 +4,38 @@ import { getUserId } from "../lib/auth";
 const router = Router();
 
 const GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4,
-].filter(Boolean) as string[];
+].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
 
 let imgKeyIndex = 0;
 function getNextKey(): string {
-  if (GEMINI_KEYS.length === 0) throw new Error("No Gemini API keys configured");
   const key = GEMINI_KEYS[imgKeyIndex % GEMINI_KEYS.length];
   imgKeyIndex = (imgKeyIndex + 1) % GEMINI_KEYS.length;
   return key;
+}
+
+const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
+
+async function readJson(response: Response): Promise<Record<string, any>> {
+  const body = await response.text();
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    return { raw: body.slice(0, 500) };
+  }
+}
+
+function providerError(data: Record<string, any>, status: number) {
+  const message = data?.error?.message;
+  return typeof message === "string" ? message : `Image provider request failed (${status})`;
+}
+
+function isRetryable(status: number) {
+  return [401, 403, 408, 429, 500, 502, 503, 504].includes(status);
 }
 
 const SIZE_PROMPTS: Record<string, string> = {
@@ -44,11 +64,16 @@ router.post("/generate-image", async (req, res) => {
 
   const fullPrompt = `${description}. ${styleHint}, ${sizeHint}, high quality, masterpiece`;
 
-  for (let attempt = 0; attempt < Math.max(GEMINI_KEYS.length, 1); attempt++) {
+  if (GEMINI_KEYS.length === 0) {
+    return res.status(503).json({ error: "Image generation is not configured yet." });
+  }
+
+  let lastError = "Image generation failed";
+  for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
     const apiKey = getNextKey();
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -60,34 +85,42 @@ router.post("/generate-image", async (req, res) => {
       );
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if ([403, 429, 500, 503].includes(response.status) && attempt < GEMINI_KEYS.length - 1) continue;
-        console.error("Image gen API error:", err);
-        return res.status(500).json({ error: "Image generation failed", detail: err });
+        const err = await readJson(response);
+        lastError = providerError(err, response.status);
+        if (isRetryable(response.status) && attempt < GEMINI_KEYS.length - 1) continue;
+        console.error("Image gen API error:", { status: response.status, message: lastError });
+        return res.status(response.status === 429 ? 429 : 502).json({ error: lastError });
       }
 
-      const data: any = await response.json();
-      const parts = data?.candidates?.[0]?.content?.parts || [];
-      const imgPart = parts.find((p: any) => p.inlineData?.mimeType?.startsWith("image/"));
+      const data: any = await readJson(response);
+      const parts = (data?.candidates || []).flatMap((candidate: any) => candidate?.content?.parts || []);
+      const imgPart = parts.find((part: any) => {
+        const inlineData = part?.inlineData || part?.inline_data;
+        return typeof inlineData?.data === "string" && inlineData?.mimeType?.startsWith("image/");
+      });
 
       if (!imgPart) {
-        console.error("No image in response", JSON.stringify(data).slice(0, 400));
-        return res.status(500).json({ error: "No image in response" });
+        lastError = "The image provider returned no image. Please try a more detailed prompt.";
+        console.error("No image in response", JSON.stringify(data).slice(0, 500));
+        if (attempt < GEMINI_KEYS.length - 1) continue;
+        return res.status(502).json({ error: lastError });
       }
 
-      const mimeType = imgPart.inlineData.mimeType;
-      const b64 = imgPart.inlineData.data;
+      const inlineData = imgPart.inlineData || imgPart.inline_data;
+      const mimeType = inlineData.mimeType;
+      const b64 = inlineData.data;
       const imageUrl = `data:${mimeType};base64,${b64}`;
 
       return res.json({ imageUrl, mimeType });
     } catch (err) {
+      lastError = err instanceof Error ? err.message : "Image provider request failed";
       if (attempt < GEMINI_KEYS.length - 1) continue;
       console.error("Image gen error:", err);
-      return res.status(500).json({ error: "Image generation error" });
+      return res.status(502).json({ error: lastError });
     }
   }
 
-  return res.status(500).json({ error: "All keys failed" });
+  return res.status(502).json({ error: lastError });
 });
 
 export default router;

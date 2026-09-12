@@ -18,6 +18,28 @@ interface LocalMessage {
   isStreaming?: boolean;
 }
 
+function playBrowserVoice(
+  text: string,
+  onStart: () => void,
+  onEnd: () => void,
+): boolean {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return false;
+
+  try {
+    window.speechSynthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text.slice(0, 1_500));
+    utterance.rate = 0.98;
+    utterance.pitch = 1;
+    utterance.onstart = onStart;
+    utterance.onend = onEnd;
+    utterance.onerror = onEnd;
+    window.speechSynthesis.speak(utterance);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function ChatPage() {
   const params = useParams<{ conversationId: string }>();
   const convId = Number(params.conversationId);
@@ -63,6 +85,7 @@ export function ChatPage() {
     if (playingMsgId === msg.id) {
       audioRef.current?.pause();
       audioRef.current = null;
+      window.speechSynthesis?.cancel();
       setPlayingMsgId(null);
       return;
     }
@@ -70,10 +93,25 @@ export function ChatPage() {
     // Stop any current audio
     audioRef.current?.pause();
     audioRef.current = null;
+    window.speechSynthesis?.cancel();
     setPlayingMsgId(null);
 
     setLoadingTTSId(msg.id);
     try {
+      const useBrowserFallback = () => {
+        const started = playBrowserVoice(
+          msg.content,
+          () => setPlayingMsgId(msg.id),
+          () => setPlayingMsgId(null),
+        );
+        if (started) {
+          toast.info("AI voice limit reached, browser voice is playing.");
+        } else {
+          toast.error("Voice unavailable. Please try again later.");
+        }
+        return started;
+      };
+
       const response = await fetch("/api/tts", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -81,11 +119,15 @@ export function ChatPage() {
       });
 
       if (!response.ok) {
-        toast.error("Voice unavailable. Try again.");
+        useBrowserFallback();
         return;
       }
 
       const blob = await response.blob();
+      if (!blob.size || !blob.type.startsWith("audio/")) {
+        useBrowserFallback();
+        return;
+      }
       const url = URL.createObjectURL(blob);
       const audio = new Audio(url);
       audioRef.current = audio;
@@ -96,11 +138,18 @@ export function ChatPage() {
       };
       audio.onerror = () => {
         setPlayingMsgId(null);
-        toast.error("Playback error.");
+        URL.revokeObjectURL(url);
+        useBrowserFallback();
       };
-      audio.play();
+      await audio.play();
     } catch {
-      toast.error("TTS error. Try again.");
+      const started = playBrowserVoice(
+        msg.content,
+        () => setPlayingMsgId(msg.id),
+        () => setPlayingMsgId(null),
+      );
+      if (started) toast.info("AI voice unavailable, browser voice is playing.");
+      else toast.error("Voice unavailable. Please try again later.");
     } finally {
       setLoadingTTSId(null);
     }

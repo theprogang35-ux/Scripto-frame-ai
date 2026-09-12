@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { MoreHorizontal, Settings, ChevronRight, X, Lock, Crown, Check, Download, Sparkles, AlertTriangle, RotateCcw, Clock, Video } from "lucide-react";
+import { MoreHorizontal, Settings, ChevronRight, X, Download, Sparkles, AlertTriangle, RotateCcw, Clock, Video } from "lucide-react";
 import { HistoryDrawer } from "@/components/HistoryDrawer";
 import { CharacterSelector } from "@/components/CharacterSelector";
 import { CharacterPortrait } from "@/components/CharacterPortrait";
@@ -42,12 +42,11 @@ const FEATURES = [
   {
     id: "video-gen",
     label: "AI Video Generation",
-    desc: "Premium: prompt se AI video banao",
+    desc: "Prompt se AI video banao — sabke liye available",
     emoji: "🎬",
     mode: "video-gen",
     color: "#ec4899",
     glow: "rgba(236,72,153,0.15)",
-    isPremium: true,
   },
   {
     id: "writing",
@@ -104,27 +103,13 @@ export function StudioPage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [selectedCharacter, setSelectedCharacter] = useState<SelectedCharacter | null>(null);
-  const [premiumOpen, setPremiumOpen] = useState(false);
   const [videoWorkspaceOpen, setVideoWorkspaceOpen] = useState(false);
-  const [premium, setPremium] = useState<{ active: boolean; status?: string } | null>(null);
   const [, setLocation] = useLocation();
   const createConversation = useCreateConversation();
 
-  useEffect(() => {
-    fetch("/api/premium/access")
-      .then(async (response) => response.ok ? response.json() : null)
-      .then((data) => data && setPremium(data))
-      .catch(() => undefined);
-  }, []);
-
   function handleFeatureClick(feat: typeof FEATURES[0]) {
-    if ((feat as { isPremium?: boolean }).isPremium) {
-      if (premium?.active) {
-        setPremiumOpen(false);
-        setVideoWorkspaceOpen(true);
-        return;
-      }
-      setPremiumOpen(true);
+    if (feat.id === "video-gen") {
+      setVideoWorkspaceOpen(true);
       return;
     }
     if ((feat as { isComingSoon?: boolean }).isComingSoon) {
@@ -343,7 +328,6 @@ export function StudioPage() {
         {/* Feature Buttons */}
         {FEATURES.map((feat, i) => {
           const isComingSoon = !!(feat as { isComingSoon?: boolean }).isComingSoon;
-          const isPremium = !!(feat as { isPremium?: boolean }).isPremium;
           return (
             <motion.button
               key={feat.id}
@@ -367,12 +351,6 @@ export function StudioPage() {
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
                   <span className="text-white text-sm font-semibold">{feat.label}</span>
-                  {isPremium && (
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-pink-500/15 text-pink-300 border border-pink-400/30 flex items-center gap-1">
-                      <Lock size={10} />
-                      Premium
-                    </span>
-                  )}
                   {isComingSoon && (
                     <span
                       className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
@@ -384,7 +362,7 @@ export function StudioPage() {
                 </div>
                 <div className="text-gray-500 text-xs mt-0.5">{isComingSoon ? "Jald hi aayega — stay tuned! 🚀" : feat.desc}</div>
               </div>
-              {isPremium ? <Lock size={16} className="text-pink-300 flex-shrink-0" /> : <ChevronRight size={16} className="text-gray-600 flex-shrink-0" />}
+              <ChevronRight size={16} className="text-gray-600 flex-shrink-0" />
             </motion.button>
           );
         })}
@@ -401,13 +379,6 @@ export function StudioPage() {
         onClose={() => setSelectorOpen(false)}
         onSelect={(char) => setSelectedCharacter(char)}
       />
-
-      {premiumOpen && (
-        <PremiumVideoModal
-          active={!!premium?.active}
-          onClose={() => setPremiumOpen(false)}
-        />
-      )}
 
       {/* Bottom Input Bar */}
       <GlobalInputBar
@@ -485,7 +456,7 @@ function AIVideoGenerationWorkspace({ onClose }: { onClose: () => void }) {
           <div>
             <div className="flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.22em] text-pink-300">
               <Video size={13} />
-              Active premium workspace
+              Free video workspace
             </div>
             <h2 className="mt-2 text-xl font-bold tracking-tight text-white sm:text-2xl">AI Video Generation</h2>
             <p className="mt-1 max-w-xl text-sm leading-6 text-gray-400">
@@ -685,83 +656,5 @@ function AIVideoGenerationWorkspace({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </motion.section>
-  );
-}
-
-function PremiumVideoModal({ active, onClose }: { active: boolean; onClose: () => void }) {
-  const [loading, setLoading] = useState(false);
-
-  async function openCheckout() {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/premium/checkout", { method: "POST" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.url) throw new Error(data.error || "Checkout unavailable");
-      window.location.assign(data.url);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Checkout unavailable");
-      setLoading(false);
-    }
-  }
-
-  async function openPortal() {
-    setLoading(true);
-    try {
-      const response = await fetch("/api/premium/portal", { method: "POST" });
-      const data = await response.json().catch(() => ({}));
-      if (!response.ok || !data.url) throw new Error(data.error || "Billing portal unavailable");
-      window.location.assign(data.url);
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Billing portal unavailable");
-      setLoading(false);
-    }
-  }
-
-  return (
-    <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/70 p-4 sm:items-center" onClick={onClose}>
-      <div
-        className="w-full max-w-sm rounded-3xl border border-pink-500/30 bg-[#100812] p-6 shadow-2xl shadow-pink-900/30"
-        onClick={(event) => event.stopPropagation()}
-      >
-        <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-pink-500/15">
-          {active ? <Crown size={28} className="text-pink-300" /> : <Lock size={26} className="text-pink-300" />}
-        </div>
-        <h2 className="text-center text-xl font-bold text-white">
-          {active ? "AI Video Generation Unlocked" : "Premium AI Video Generation"}
-        </h2>
-        <p className="mt-2 text-center text-sm leading-6 text-gray-400">
-          {active
-            ? "Aapke account mein AI video generation active hai. Video editing is feature ka part nahi hai."
-            : "AI Video Generation use karne ke liye Premium subscription chahiye. Video editing available nahi hai."}
-        </p>
-
-        <div className="mt-5 space-y-2 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm text-gray-300">
-          <div className="flex items-center gap-2"><Check size={15} className="text-emerald-400" /> Prompt se AI video generation</div>
-          <div className="flex items-center gap-2"><Check size={15} className="text-emerald-400" /> Premium account access</div>
-          <div className="flex items-center gap-2"><Check size={15} className="text-emerald-400" /> Video editor included nahi hai</div>
-        </div>
-
-        {active ? (
-          <button
-            onClick={openPortal}
-            disabled={loading}
-            className="mt-5 w-full rounded-2xl bg-pink-600 py-3.5 text-sm font-bold text-white disabled:opacity-50"
-            data-testid="button-manage-subscription"
-          >
-            {loading ? "Opening..." : "Manage Subscription"}
-          </button>
-        ) : (
-          <button
-            onClick={openCheckout}
-            disabled={loading}
-            className="mt-5 w-full rounded-2xl bg-gradient-to-r from-pink-600 to-purple-600 py-3.5 text-sm font-bold text-white disabled:opacity-50"
-            data-testid="button-unlock-premium"
-          >
-            {loading ? "Opening checkout..." : "Unlock Premium — ₹499/month"}
-          </button>
-        )}
-        <button onClick={onClose} className="mt-3 w-full py-2 text-sm text-gray-500 hover:text-white" data-testid="button-close-premium-modal">Close</button>
-      </div>
-    </div>
   );
 }

@@ -77,6 +77,38 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
     }
   }
 
+  function handlePhotoUpload(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select an image file.");
+      return;
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      toast.error("Photo must be smaller than 8 MB.");
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        toast.error("Photo could not be read.");
+        return;
+      }
+      try {
+        sessionStorage.setItem("scripto-pending-photo", JSON.stringify({
+          dataUrl: reader.result,
+          name: file.name,
+        }));
+        toast.success("Photo uploaded. Opening editor...");
+        setLocation("/create-edit");
+      } catch {
+        toast.error("Photo is too large for browser storage. Try a smaller image.");
+      }
+    };
+    reader.onerror = () => toast.error("Photo could not be read.");
+    reader.readAsDataURL(file);
+  }
+
   return (
     <>
       <AnimatePresence>
@@ -133,7 +165,16 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
         )}
       </AnimatePresence>
 
-      <input ref={photoRef} type="file" accept="image/*" className="hidden" onChange={() => toast.success("Photo uploaded!")} />
+      <input
+        ref={photoRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          handlePhotoUpload(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
       <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={() => toast.success("Video uploaded!")} />
       <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.txt" className="hidden" onChange={() => toast.success("Document uploaded!")} />
 

@@ -2,3 +2,4 @@
 - [Gemini provider checks](gemini-provider-checks.md) — Validate live Gemini credentials and model availability; provider keys can be suspended and model IDs can sunset.
 - [Workspace package age policy](workspace-package-age.md) — Dependency installs enforce a one-day release age; choose the newest mature release instead of bypassing the guard.
 - [WebGL preview fallback](webgl-preview-fallback.md) — Browser previews may not expose WebGL; keep R3F views behind capability detection with a useful static fallback.
+- [Browser upload flow](browser-upload-flow.md) — A file picker needs a real handoff into the feature flow, not only a success toast.

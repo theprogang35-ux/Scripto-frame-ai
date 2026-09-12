@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { getUserId } from "../lib/auth";
-import { getPremiumState } from "./stripe";
 
 const router: IRouter = Router();
 
@@ -104,21 +103,6 @@ router.post("/generate-video", async (req, res): Promise<void> => {
   }
   if (![4, 6, 8].includes(Number(durationSeconds))) {
     res.status(400).json({ error: "durationSeconds must be 4, 6, or 8." });
-    return;
-  }
-
-  try {
-    const premium = await getPremiumState(userId);
-    if (!premium.active) {
-      res.status(403).json({
-        error: "Premium AI Video Generation requires an active subscription.",
-        code: "PREMIUM_REQUIRED",
-      });
-      return;
-    }
-  } catch (error) {
-    req.log.error({ err: error }, "Failed to verify premium access for video generation");
-    res.status(502).json({ error: "Premium status unavailable. Please try again." });
     return;
   }
 

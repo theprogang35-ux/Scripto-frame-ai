@@ -4,6 +4,7 @@ import { getUserId } from "../lib/auth";
 
 const router: IRouter = Router();
 const PREMIUM_LOOKUP_KEY = "ai_video_generation_premium_monthly";
+const FIRST_MONTH_AMOUNT_INR = 6_000;
 
 async function getOrCreateCustomer(stripe: Awaited<ReturnType<typeof getUncachableStripeClient>>, userId: string) {
   const existing = await stripe.customers.search({
@@ -49,6 +50,30 @@ export async function getPremiumState(userId: string) {
   return { active: false, customerId: customers.data[0]?.id ?? null };
 }
 
+async function createFirstMonthCoupon(
+  stripe: Awaited<ReturnType<typeof getUncachableStripeClient>>,
+  price: { currency: string; unit_amount: number | null },
+) {
+  if (price.currency !== "inr" || typeof price.unit_amount !== "number") {
+    throw new Error("Premium plan must use an INR recurring price to offer the ₹60 first-month deal.");
+  }
+
+  if (price.unit_amount <= FIRST_MONTH_AMOUNT_INR) return undefined;
+
+  const coupon = await stripe.coupons.create({
+    amount_off: price.unit_amount - FIRST_MONTH_AMOUNT_INR,
+    currency: "inr",
+    duration: "once",
+    name: "AI Character Studio — first month ₹60",
+    metadata: {
+      offer: "premium_first_month_60_inr",
+      lookupKey: PREMIUM_LOOKUP_KEY,
+    },
+  });
+
+  return coupon.id;
+}
+
 router.get("/premium/access", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Sign in required" });
@@ -76,11 +101,13 @@ router.post("/premium/checkout", async (req, res) => {
     if (!price) return res.status(503).json({ error: "Premium plan is not configured" });
 
     const customer = await getOrCreateCustomer(stripe, userId);
+    const firstMonthCoupon = await createFirstMonthCoupon(stripe, price);
     const origin = `${req.protocol}://${req.get("host")}`;
     const session = await stripe.checkout.sessions.create({
       customer: customer.id,
       mode: "subscription",
       line_items: [{ price: price.id, quantity: 1 }],
+      ...(firstMonthCoupon ? { discounts: [{ coupon: firstMonthCoupon }] } : {}),
       success_url: `${origin}/studio?premium=success`,
       cancel_url: `${origin}/studio?premium=cancelled`,
       metadata: { clerkUserId: userId, feature: "ai_video_generation" },

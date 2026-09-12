@@ -39,19 +39,39 @@ const CHARACTER_VOICES: Record<string, string> = {
 };
 
 const GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4,
-].filter(Boolean) as string[];
+].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
 
 let ttsKeyIndex = 0;
 
 function getNextKey(): string {
-  if (GEMINI_KEYS.length === 0) throw new Error("No Gemini API keys configured");
   const key = GEMINI_KEYS[ttsKeyIndex % GEMINI_KEYS.length];
   ttsKeyIndex = (ttsKeyIndex + 1) % GEMINI_KEYS.length;
   return key;
+}
+
+const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+
+async function readJson(response: Response): Promise<Record<string, any>> {
+  const body = await response.text();
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    return { raw: body.slice(0, 500) };
+  }
+}
+
+function providerError(data: Record<string, any>, status: number) {
+  const message = data?.error?.message;
+  return typeof message === "string" ? message : `Voice provider request failed (${status})`;
+}
+
+function isRetryable(status: number) {
+  return [401, 403, 408, 429, 500, 502, 503, 504].includes(status);
 }
 
 // Converts raw PCM (16-bit LE, mono, 24000 Hz) to a proper WAV buffer
@@ -91,11 +111,16 @@ router.post("/tts", async (req, res) => {
   const voiceName = CHARACTER_VOICES[characterId] || "Charon";
   const truncated = text.slice(0, 800);
 
+  if (GEMINI_KEYS.length === 0) {
+    return res.status(503).json({ error: "Voice generation is not configured yet." });
+  }
+
+  let lastError = "Voice generation failed";
   for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
     const apiKey = getNextKey();
     try {
       const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${apiKey}`,
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -112,20 +137,31 @@ router.post("/tts", async (req, res) => {
       );
 
       if (!response.ok) {
-        const err = await response.json().catch(() => ({}));
-        if (response.status === 429 && attempt < GEMINI_KEYS.length - 1) continue;
-        console.error("TTS API error:", err);
-        return res.status(500).json({ error: "TTS failed", detail: err });
+        const err = await readJson(response);
+        lastError = providerError(err, response.status);
+        if (isRetryable(response.status) && attempt < GEMINI_KEYS.length - 1) {
+          await wait(Math.min(900, 150 * 2 ** attempt));
+          continue;
+        }
+        console.error("TTS API error:", { status: response.status, message: lastError });
+        return res.status(response.status === 429 ? 429 : 502).json({ error: lastError });
       }
 
-      const data: any = await response.json();
-      const part = data?.candidates?.[0]?.content?.parts?.[0];
-      const audioB64 = part?.inlineData?.data;
-      const mimeType: string = part?.inlineData?.mimeType || "audio/pcm";
+      const data: any = await readJson(response);
+      const parts = (data?.candidates || []).flatMap((candidate: any) => candidate?.content?.parts || []);
+      const part = parts.find((candidatePart: any) => {
+        const inlineData = candidatePart?.inlineData || candidatePart?.inline_data;
+        return typeof inlineData?.data === "string";
+      });
+      const inlineData = part?.inlineData || part?.inline_data;
+      const audioB64 = inlineData?.data;
+      const mimeType: string = inlineData?.mimeType || "audio/pcm";
 
       if (!audioB64) {
-        console.error("No audio data in TTS response", JSON.stringify(data).slice(0, 300));
-        return res.status(500).json({ error: "No audio in response" });
+        lastError = "The voice provider returned no audio. Please try again.";
+        console.error("No audio data in TTS response", JSON.stringify(data).slice(0, 500));
+        if (attempt < GEMINI_KEYS.length - 1) continue;
+        return res.status(502).json({ error: lastError });
       }
 
       const rawBuffer = Buffer.from(audioB64, "base64");
@@ -144,12 +180,13 @@ router.post("/tts", async (req, res) => {
       return res.send(wavBuffer);
 
     } catch (err) {
+      lastError = err instanceof Error ? err.message : "Voice provider request failed";
       if (attempt < GEMINI_KEYS.length - 1) continue;
       console.error("TTS error:", err);
-      return res.status(500).json({ error: "TTS error" });
+      return res.status(502).json({ error: lastError });
     }
   }
-  return res.status(500).json({ error: "All keys failed" });
+  return res.status(502).json({ error: lastError });
 });
 
 export default router;
