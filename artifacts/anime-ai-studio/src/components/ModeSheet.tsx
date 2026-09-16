@@ -1,5 +1,5 @@
 import { motion, AnimatePresence } from "framer-motion";
-import { X, MessageCircle, Video, BookOpen, GraduationCap, Heart, Search } from "lucide-react";
+import { X, MessageCircle, Video, BookOpen, GraduationCap, Heart, Search, Sparkles } from "lucide-react";
 import { useCreateConversation } from "@workspace/api-client-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -7,6 +7,7 @@ import { MODES, CHARACTER_EMOJI } from "@/data/characters";
 
 const ModeIcons: Record<string, React.ComponentType<{ size?: number; className?: string; color?: string }>> = {
   MessageCircle,
+  Sparkles,
   Video,
   BookOpen,
   GraduationCap,

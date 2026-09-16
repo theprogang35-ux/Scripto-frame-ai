@@ -161,6 +161,7 @@ export const MARVEL_CHARACTERS: Character[] = [
 
 export const MODES = [
   { id: "chat", label: "Talking with AI Friend", icon: "MessageCircle", color: "#9333ea" },
+  { id: "workspace", label: "Scripto AI Workspace", icon: "Sparkles", color: "#a855f7" },
   { id: "script", label: "Script for Social Media", icon: "Video", color: "#00f2ff" },
   { id: "story", label: "Story Writing Helper", icon: "BookOpen", color: "#f59e0b" },
   { id: "learn", label: "Help to Learn", icon: "GraduationCap", color: "#10b981" },

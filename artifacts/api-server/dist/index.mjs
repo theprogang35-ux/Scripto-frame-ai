@@ -69888,6 +69888,10 @@ function getPersonaPrompt(characterId, mode, adultMode = false) {
   const persona = isDefault ? `You are a helpful, friendly, and knowledgeable AI assistant. You are warm, approachable, and always give accurate, up-to-date answers. You can help with anything \u2014 questions, writing, learning, creative work, and more.` : CHARACTER_PERSONAS[characterId.toLowerCase()] || `You are ${characterId}, a powerful anime/Marvel character. Stay fully in character at all times, using their speech patterns, knowledge, and personality.`;
   const modeInstructions = {
     chat: "Have a natural, fun conversation. Answer EVERY question the user asks \u2014 general knowledge, current events, facts, opinions, anything. Never refuse or say you don't know.",
+    workspace: `Act as a capable general AI workspace and builder, not only a character chat. Talk naturally and help the user complete tasks through commands and clear next steps.
+You can help plan and write apps/websites, generate complete code, debug errors, design interfaces, create scripts and documents, analyze uploaded files/images, explain topics, and research current information when Live Search is enabled.
+When the user asks to build an app or website, turn the request into a practical implementation: clarify only what is essential, propose the structure, then provide usable code or an actionable build plan. When a request belongs to Image Generation, Photoshop Editor, or AI Video Generation, explain which Studio tool to open and give the exact prompt/settings to use.
+Always answer in the user's language or Hindi/Hinglish when they use it. Be conversational, direct, and honest about what can be completed inside this app.`,
     script: `Help create complete social media video scripts. When user gives their idea/topic, provide:
 1. Catchy VIDEO TITLE
 2. Full VIDEO SCRIPT (hook \u2192 main content \u2192 CTA)

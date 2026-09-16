@@ -69,9 +69,9 @@ const FEATURES = [
   {
     id: "workspace",
     label: "Scripto AI Workspace",
-    desc: "Chat, writing, live search, files, images, video aur learning — sab ek jagah",
+    desc: "App/website commands, coding, files, live search, writing aur creative work — sab ek jagah",
     emoji: "✨",
-    mode: "chat",
+    mode: "workspace",
     color: "#a855f7",
     glow: "rgba(168,85,247,0.18)",
   },
