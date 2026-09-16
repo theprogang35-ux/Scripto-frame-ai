@@ -5,11 +5,12 @@ import { getUserId } from "../lib/auth";
 const router: IRouter = Router();
 
 const GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4,
-].filter(Boolean) as string[];
+].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
 
 const VIDEO_MODELS = [
   process.env.GEMINI_VIDEO_MODEL,

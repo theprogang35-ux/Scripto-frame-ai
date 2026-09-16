@@ -16,11 +16,12 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 const router = Router();
 
 const GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4,
-].filter(Boolean) as string[];
+].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
 
 let currentKeyIndex = 0;
 

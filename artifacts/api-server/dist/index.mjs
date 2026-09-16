@@ -69721,11 +69721,12 @@ function getUserId(req) {
 import { GoogleGenerativeAI } from "@google/generative-ai";
 var router2 = (0, import_express3.Router)();
 var GEMINI_KEYS = [
+  process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4
-].filter(Boolean);
+].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index);
 var currentKeyIndex = 0;
 function getGeminiClient() {
   if (GEMINI_KEYS.length === 0) throw new Error("No Gemini API keys configured");
@@ -90804,11 +90805,12 @@ var import_express7 = __toESM(require_express2(), 1);
 import { randomUUID as randomUUID2 } from "node:crypto";
 var router6 = (0, import_express7.Router)();
 var GEMINI_KEYS4 = [
+  process.env.GEMINI_API_KEY,
   process.env.GEMINI_API_KEY_1,
   process.env.GEMINI_API_KEY_2,
   process.env.GEMINI_API_KEY_3,
   process.env.GEMINI_API_KEY_4
-].filter(Boolean);
+].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index);
 var VIDEO_MODELS = [
   process.env.GEMINI_VIDEO_MODEL,
   "veo-3.1-generate-preview",
