@@ -1,16 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { getUserId } from "../lib/auth";
+import {
+  getGeminiKeyCandidates,
+  getGeminiKeyCount,
+  markGeminiKeyFailure,
+} from "../lib/geminiKeys";
 
 const router: IRouter = Router();
-
-const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4,
-].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
 
 const VIDEO_MODELS = [
   process.env.GEMINI_VIDEO_MODEL,
@@ -107,14 +104,15 @@ router.post("/generate-video", async (req, res): Promise<void> => {
     return;
   }
 
-  if (GEMINI_KEYS.length === 0) {
+  if (getGeminiKeyCount() === 0) {
     res.status(503).json({ error: "AI video generation is not configured yet." });
     return;
   }
 
   let lastError = "The video provider could not start this request.";
-  for (let keyIndex = 0; keyIndex < GEMINI_KEYS.length; keyIndex += 1) {
-    const apiKey = GEMINI_KEYS[keyIndex];
+  const keyCandidates = getGeminiKeyCandidates();
+  for (let keyIndex = 0; keyIndex < keyCandidates.length; keyIndex += 1) {
+    const apiKey = keyCandidates[keyIndex].key;
     for (let modelIndex = 0; modelIndex < VIDEO_MODELS.length; modelIndex += 1) {
       const model = VIDEO_MODELS[modelIndex];
       try {
@@ -136,6 +134,9 @@ router.post("/generate-video", async (req, res): Promise<void> => {
         const startData = await readJson(startResponse);
         if (!startResponse.ok) {
           lastError = getErrorMessage(startData, `Video provider rejected the request (${startResponse.status}).`);
+          if ([401, 403, 408, 429, 500, 502, 503, 504].includes(startResponse.status)) {
+            markGeminiKeyFailure(apiKey, startResponse.status);
+          }
           if ([401, 403, 429, 500, 503].includes(startResponse.status)) break;
           continue;
         }
@@ -170,7 +171,7 @@ router.post("/generate-video", async (req, res): Promise<void> => {
       } catch (error) {
         lastError = error instanceof Error ? error.message : "The video provider failed unexpectedly.";
         req.log.warn({ err: error, model, keyIndex }, "Video generation attempt failed");
-        if (modelIndex === VIDEO_MODELS.length - 1 && keyIndex < GEMINI_KEYS.length - 1) continue;
+        if (modelIndex === VIDEO_MODELS.length - 1 && keyIndex < keyCandidates.length - 1) continue;
       }
     }
   }

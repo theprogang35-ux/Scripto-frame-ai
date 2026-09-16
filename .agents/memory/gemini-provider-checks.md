@@ -14,3 +14,9 @@ Gemini free-tier request limits can be project-wide rather than key-wide. Rotati
 **Why:** The provider's quota errors identify the project/model quota metric, so changing only the key may not change the effective limit.
 
 **How to apply:** Keep rotation for independent projects, but show a clear quota message when every configured project is exhausted.
+
+The API server should use one shared, round-robin key pool across chat, image, voice, and video routes, with short cooldowns after quota or authorization failures. Per-route cursors can otherwise concentrate traffic on the same key.
+
+**Why:** Each route previously maintained its own cursor, so rotation was inconsistent across the product even though multiple Gemini secrets were configured.
+
+**How to apply:** Keep key values inside the server only, expose slot names/counts at most for diagnostics, and always retry another configured key before returning a provider error.

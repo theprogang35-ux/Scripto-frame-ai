@@ -1,5 +1,10 @@
 import { Router } from "express";
 import { getUserId } from "../lib/auth";
+import {
+  getGeminiKeyCandidates,
+  getGeminiKeyCount,
+  markGeminiKeyFailure,
+} from "../lib/geminiKeys";
 
 const router = Router();
 
@@ -37,22 +42,6 @@ const CHARACTER_VOICES: Record<string, string> = {
   thor: "Orus", hulk: "Fenrir", blackwidow: "Zephyr",
   blackpanther: "Charon", scarletwitch: "Aoede", groot: "Orus", loki: "Charon",
 };
-
-const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4,
-].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
-
-let ttsKeyIndex = 0;
-
-function getNextKey(): string {
-  const key = GEMINI_KEYS[ttsKeyIndex % GEMINI_KEYS.length];
-  ttsKeyIndex = (ttsKeyIndex + 1) % GEMINI_KEYS.length;
-  return key;
-}
 
 const wait = (milliseconds: number) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 
@@ -111,13 +100,14 @@ router.post("/tts", async (req, res) => {
   const voiceName = CHARACTER_VOICES[characterId] || "Charon";
   const truncated = text.slice(0, 800);
 
-  if (GEMINI_KEYS.length === 0) {
+  if (getGeminiKeyCount() === 0) {
     return res.status(503).json({ error: "Voice generation is not configured yet." });
   }
 
   let lastError = "Voice generation failed";
-  for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
-    const apiKey = getNextKey();
+  const keyCandidates = getGeminiKeyCandidates();
+  for (let attempt = 0; attempt < keyCandidates.length; attempt++) {
+    const apiKey = keyCandidates[attempt].key;
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -139,7 +129,8 @@ router.post("/tts", async (req, res) => {
       if (!response.ok) {
         const err = await readJson(response);
         lastError = providerError(err, response.status);
-        if (isRetryable(response.status) && attempt < GEMINI_KEYS.length - 1) {
+        if (isRetryable(response.status) && attempt < keyCandidates.length - 1) {
+          markGeminiKeyFailure(apiKey, response.status);
           await wait(Math.min(900, 150 * 2 ** attempt));
           continue;
         }
@@ -160,7 +151,7 @@ router.post("/tts", async (req, res) => {
       if (!audioB64) {
         lastError = "The voice provider returned no audio. Please try again.";
         console.error("No audio data in TTS response", JSON.stringify(data).slice(0, 500));
-        if (attempt < GEMINI_KEYS.length - 1) continue;
+        if (attempt < keyCandidates.length - 1) continue;
         return res.status(502).json({ error: lastError });
       }
 
@@ -181,7 +172,10 @@ router.post("/tts", async (req, res) => {
 
     } catch (err) {
       lastError = err instanceof Error ? err.message : "Voice provider request failed";
-      if (attempt < GEMINI_KEYS.length - 1) continue;
+      if (attempt < keyCandidates.length - 1) {
+        markGeminiKeyFailure(apiKey, 502);
+        continue;
+      }
       console.error("TTS error:", err);
       return res.status(502).json({ error: lastError });
     }

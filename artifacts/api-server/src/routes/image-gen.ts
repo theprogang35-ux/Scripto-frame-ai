@@ -1,22 +1,12 @@
 import { Router } from "express";
 import { getUserId } from "../lib/auth";
+import {
+  getGeminiKeyCandidates,
+  getGeminiKeyCount,
+  markGeminiKeyFailure,
+} from "../lib/geminiKeys";
 
 const router = Router();
-
-const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4,
-].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
-
-let imgKeyIndex = 0;
-function getNextKey(): string {
-  const key = GEMINI_KEYS[imgKeyIndex % GEMINI_KEYS.length];
-  imgKeyIndex = (imgKeyIndex + 1) % GEMINI_KEYS.length;
-  return key;
-}
 
 const IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
 
@@ -75,13 +65,14 @@ router.post("/generate-image", async (req, res) => {
 
   const fullPrompt = `${description}. ${styleHint}, ${sizeHint}, high quality, masterpiece`;
 
-  if (GEMINI_KEYS.length === 0) {
+  if (getGeminiKeyCount() === 0) {
     return res.status(503).json({ error: "Image generation is not configured yet." });
   }
 
   let lastError = "Image generation failed";
-  for (let attempt = 0; attempt < GEMINI_KEYS.length; attempt++) {
-    const apiKey = getNextKey();
+  const keyCandidates = getGeminiKeyCandidates();
+  for (let attempt = 0; attempt < keyCandidates.length; attempt++) {
+    const apiKey = keyCandidates[attempt].key;
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -98,7 +89,10 @@ router.post("/generate-image", async (req, res) => {
       if (!response.ok) {
         const err = await readJson(response);
         lastError = userFacingProviderError(err, response.status);
-        if (isRetryable(response.status) && attempt < GEMINI_KEYS.length - 1) continue;
+        if (isRetryable(response.status) && attempt < keyCandidates.length - 1) {
+          markGeminiKeyFailure(apiKey, response.status);
+          continue;
+        }
         console.error("Image gen API error:", { status: response.status, message: lastError });
         return res.status(response.status === 429 ? 429 : 502).json({ error: lastError });
       }
@@ -113,7 +107,7 @@ router.post("/generate-image", async (req, res) => {
       if (!imgPart) {
         lastError = "The image provider returned no image. Please try a more detailed prompt.";
         console.error("No image in response", JSON.stringify(data).slice(0, 500));
-        if (attempt < GEMINI_KEYS.length - 1) continue;
+        if (attempt < keyCandidates.length - 1) continue;
         return res.status(502).json({ error: lastError });
       }
 
@@ -125,7 +119,10 @@ router.post("/generate-image", async (req, res) => {
       return res.json({ imageUrl, mimeType });
     } catch (err) {
       lastError = err instanceof Error ? err.message : "Image provider request failed";
-      if (attempt < GEMINI_KEYS.length - 1) continue;
+      if (attempt < keyCandidates.length - 1) {
+        markGeminiKeyFailure(apiKey, 502);
+        continue;
+      }
       console.error("Image gen error:", err);
       return res.status(502).json({ error: lastError });
     }

@@ -69717,23 +69717,41 @@ function getUserId(req) {
   }
 }
 
+// src/lib/geminiKeys.ts
+var configuredKeys = [
+  ["GEMINI_API_KEY", process.env.GEMINI_API_KEY],
+  ["GEMINI_API_KEY_1", process.env.GEMINI_API_KEY_1],
+  ["GEMINI_API_KEY_2", process.env.GEMINI_API_KEY_2],
+  ["GEMINI_API_KEY_3", process.env.GEMINI_API_KEY_3],
+  ["GEMINI_API_KEY_4", process.env.GEMINI_API_KEY_4]
+].filter((entry) => Boolean(entry[1])).reduce((unique, [slot, key]) => {
+  if (!unique.some((entry) => entry.key === key)) unique.push({ key, slot });
+  return unique;
+}, []);
+var nextStartIndex = 0;
+var cooldownUntil = /* @__PURE__ */ new Map();
+function getGeminiKeyCount() {
+  return configuredKeys.length;
+}
+function getGeminiKeyCandidates() {
+  if (configuredKeys.length === 0) return [];
+  const start = nextStartIndex % configuredKeys.length;
+  nextStartIndex = (nextStartIndex + 1) % configuredKeys.length;
+  const now = Date.now();
+  const ordered = configuredKeys.slice(start).concat(configuredKeys.slice(0, start));
+  const available = ordered.filter((entry) => (cooldownUntil.get(entry.key) ?? 0) <= now);
+  const coolingDown = ordered.filter((entry) => (cooldownUntil.get(entry.key) ?? 0) > now);
+  return available.concat(coolingDown);
+}
+function markGeminiKeyFailure(key, status) {
+  if (![401, 403, 408, 429, 500, 502, 503, 504].includes(status)) return;
+  const cooldownMs = status === 429 ? 6e4 : status === 401 || status === 403 ? 3e4 : 1e4;
+  cooldownUntil.set(key, Date.now() + cooldownMs);
+}
+
 // src/routes/conversations.ts
 import { GoogleGenerativeAI } from "@google/generative-ai";
 var router2 = (0, import_express3.Router)();
-var GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4
-].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index);
-var currentKeyIndex = 0;
-function getGeminiClient() {
-  if (GEMINI_KEYS.length === 0) throw new Error("No Gemini API keys configured");
-  const key = GEMINI_KEYS[currentKeyIndex % GEMINI_KEYS.length];
-  currentKeyIndex = (currentKeyIndex + 1) % GEMINI_KEYS.length;
-  return new GoogleGenerativeAI(key);
-}
 var sleep2 = (ms) => new Promise((r) => setTimeout(r, ms));
 function getUserFacingGeminiError(error40) {
   const status = error40?.status;
@@ -69749,11 +69767,13 @@ function getUserFacingGeminiError(error40) {
 async function geminiChat(systemPrompt, history, userMessage, liveSearch = false, imageUrl) {
   const models = ["gemini-2.5-flash"];
   let lastErr;
-  const totalKeys = GEMINI_KEYS.length || 1;
+  const keyCandidates = getGeminiKeyCandidates();
+  if (keyCandidates.length === 0) throw new Error("No Gemini API keys configured");
   for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
-    for (let keyAttempt = 0; keyAttempt < totalKeys; keyAttempt++) {
+    for (let keyAttempt = 0; keyAttempt < keyCandidates.length; keyAttempt++) {
+      const keyEntry = keyCandidates[keyAttempt];
       try {
-        const genAI = getGeminiClient();
+        const genAI = new GoogleGenerativeAI(keyEntry.key);
         const model = genAI.getGenerativeModel({
           model: models[modelIdx],
           systemInstruction: systemPrompt,
@@ -69786,7 +69806,8 @@ async function geminiChat(systemPrompt, history, userMessage, liveSearch = false
         const isQuota = err?.status === 429 || String(err?.message).includes("quota") || String(err?.message).includes("RESOURCE_EXHAUSTED") || String(err?.message).includes("rate limit");
         const isKeyUnavailable = isQuota || err?.status === 403;
         const isModelErr = err?.status === 400 || String(err?.message).includes("not found") || String(err?.message).includes("not supported") || String(err?.message).includes("deprecated");
-        if (isKeyUnavailable && keyAttempt < totalKeys - 1) {
+        if (isKeyUnavailable && keyAttempt < keyCandidates.length - 1) {
+          markGeminiKeyFailure(keyEntry.key, err?.status || 500);
           await sleep2(300);
           continue;
         }
@@ -70126,19 +70147,6 @@ var CHARACTER_VOICES = {
   groot: "Orus",
   loki: "Charon"
 };
-var GEMINI_KEYS2 = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4
-].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index);
-var ttsKeyIndex = 0;
-function getNextKey() {
-  const key = GEMINI_KEYS2[ttsKeyIndex % GEMINI_KEYS2.length];
-  ttsKeyIndex = (ttsKeyIndex + 1) % GEMINI_KEYS2.length;
-  return key;
-}
 var wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
 async function readJson(response) {
   const body = await response.text();
@@ -70184,12 +70192,13 @@ router3.post("/tts", async (req, res) => {
   if (!text2 || typeof text2 !== "string") return res.status(400).json({ error: "text required" });
   const voiceName = CHARACTER_VOICES[characterId] || "Charon";
   const truncated = text2.slice(0, 800);
-  if (GEMINI_KEYS2.length === 0) {
+  if (getGeminiKeyCount() === 0) {
     return res.status(503).json({ error: "Voice generation is not configured yet." });
   }
   let lastError = "Voice generation failed";
-  for (let attempt = 0; attempt < GEMINI_KEYS2.length; attempt++) {
-    const apiKey = getNextKey();
+  const keyCandidates = getGeminiKeyCandidates();
+  for (let attempt = 0; attempt < keyCandidates.length; attempt++) {
+    const apiKey = keyCandidates[attempt].key;
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-tts:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -70210,7 +70219,8 @@ router3.post("/tts", async (req, res) => {
       if (!response.ok) {
         const err = await readJson(response);
         lastError = providerError(err, response.status);
-        if (isRetryable(response.status) && attempt < GEMINI_KEYS2.length - 1) {
+        if (isRetryable(response.status) && attempt < keyCandidates.length - 1) {
+          markGeminiKeyFailure(apiKey, response.status);
           await wait(Math.min(900, 150 * 2 ** attempt));
           continue;
         }
@@ -70229,7 +70239,7 @@ router3.post("/tts", async (req, res) => {
       if (!audioB64) {
         lastError = "The voice provider returned no audio. Please try again.";
         console.error("No audio data in TTS response", JSON.stringify(data).slice(0, 500));
-        if (attempt < GEMINI_KEYS2.length - 1) continue;
+        if (attempt < keyCandidates.length - 1) continue;
         return res.status(502).json({ error: lastError });
       }
       const rawBuffer = Buffer.from(audioB64, "base64");
@@ -70242,7 +70252,10 @@ router3.post("/tts", async (req, res) => {
       return res.send(wavBuffer);
     } catch (err) {
       lastError = err instanceof Error ? err.message : "Voice provider request failed";
-      if (attempt < GEMINI_KEYS2.length - 1) continue;
+      if (attempt < keyCandidates.length - 1) {
+        markGeminiKeyFailure(apiKey, 502);
+        continue;
+      }
       console.error("TTS error:", err);
       return res.status(502).json({ error: lastError });
     }
@@ -70254,19 +70267,6 @@ var tts_default = router3;
 // src/routes/image-gen.ts
 var import_express5 = __toESM(require_express2(), 1);
 var router4 = (0, import_express5.Router)();
-var GEMINI_KEYS3 = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4
-].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index);
-var imgKeyIndex = 0;
-function getNextKey2() {
-  const key = GEMINI_KEYS3[imgKeyIndex % GEMINI_KEYS3.length];
-  imgKeyIndex = (imgKeyIndex + 1) % GEMINI_KEYS3.length;
-  return key;
-}
 var IMAGE_MODEL = process.env.GEMINI_IMAGE_MODEL || "gemini-2.5-flash-image";
 async function readJson2(response) {
   const body = await response.text();
@@ -70309,12 +70309,13 @@ router4.post("/generate-image", async (req, res) => {
   const sizeHint = SIZE_PROMPTS[size] || SIZE_PROMPTS.square;
   const styleHint = style === "anime" ? "anime art style, vibrant colors, detailed illustration, manga-inspired" : style === "realistic" ? "photorealistic, hyper-detailed, cinematic lighting" : "digital art, concept art style";
   const fullPrompt = `${description}. ${styleHint}, ${sizeHint}, high quality, masterpiece`;
-  if (GEMINI_KEYS3.length === 0) {
+  if (getGeminiKeyCount() === 0) {
     return res.status(503).json({ error: "Image generation is not configured yet." });
   }
   let lastError = "Image generation failed";
-  for (let attempt = 0; attempt < GEMINI_KEYS3.length; attempt++) {
-    const apiKey = getNextKey2();
+  const keyCandidates = getGeminiKeyCandidates();
+  for (let attempt = 0; attempt < keyCandidates.length; attempt++) {
+    const apiKey = keyCandidates[attempt].key;
     try {
       const response = await fetch(
         `https://generativelanguage.googleapis.com/v1beta/models/${IMAGE_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`,
@@ -70330,7 +70331,10 @@ router4.post("/generate-image", async (req, res) => {
       if (!response.ok) {
         const err = await readJson2(response);
         lastError = userFacingProviderError(err, response.status);
-        if (isRetryable2(response.status) && attempt < GEMINI_KEYS3.length - 1) continue;
+        if (isRetryable2(response.status) && attempt < keyCandidates.length - 1) {
+          markGeminiKeyFailure(apiKey, response.status);
+          continue;
+        }
         console.error("Image gen API error:", { status: response.status, message: lastError });
         return res.status(response.status === 429 ? 429 : 502).json({ error: lastError });
       }
@@ -70343,7 +70347,7 @@ router4.post("/generate-image", async (req, res) => {
       if (!imgPart) {
         lastError = "The image provider returned no image. Please try a more detailed prompt.";
         console.error("No image in response", JSON.stringify(data).slice(0, 500));
-        if (attempt < GEMINI_KEYS3.length - 1) continue;
+        if (attempt < keyCandidates.length - 1) continue;
         return res.status(502).json({ error: lastError });
       }
       const inlineData = imgPart.inlineData || imgPart.inline_data;
@@ -70353,7 +70357,10 @@ router4.post("/generate-image", async (req, res) => {
       return res.json({ imageUrl, mimeType });
     } catch (err) {
       lastError = err instanceof Error ? err.message : "Image provider request failed";
-      if (attempt < GEMINI_KEYS3.length - 1) continue;
+      if (attempt < keyCandidates.length - 1) {
+        markGeminiKeyFailure(apiKey, 502);
+        continue;
+      }
       console.error("Image gen error:", err);
       return res.status(502).json({ error: lastError });
     }
@@ -90808,13 +90815,6 @@ var stripe_default = router5;
 var import_express7 = __toESM(require_express2(), 1);
 import { randomUUID as randomUUID2 } from "node:crypto";
 var router6 = (0, import_express7.Router)();
-var GEMINI_KEYS4 = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4
-].filter((key, index, keys) => Boolean(key) && keys.indexOf(key) === index);
 var VIDEO_MODELS = [
   process.env.GEMINI_VIDEO_MODEL,
   "veo-3.1-generate-preview",
@@ -90898,13 +90898,14 @@ router6.post("/generate-video", async (req, res) => {
     res.status(400).json({ error: "durationSeconds must be 4, 6, or 8." });
     return;
   }
-  if (GEMINI_KEYS4.length === 0) {
+  if (getGeminiKeyCount() === 0) {
     res.status(503).json({ error: "AI video generation is not configured yet." });
     return;
   }
   let lastError = "The video provider could not start this request.";
-  for (let keyIndex = 0; keyIndex < GEMINI_KEYS4.length; keyIndex += 1) {
-    const apiKey = GEMINI_KEYS4[keyIndex];
+  const keyCandidates = getGeminiKeyCandidates();
+  for (let keyIndex = 0; keyIndex < keyCandidates.length; keyIndex += 1) {
+    const apiKey = keyCandidates[keyIndex].key;
     for (let modelIndex = 0; modelIndex < VIDEO_MODELS.length; modelIndex += 1) {
       const model = VIDEO_MODELS[modelIndex];
       try {
@@ -90926,6 +90927,9 @@ router6.post("/generate-video", async (req, res) => {
         const startData = await readJson3(startResponse);
         if (!startResponse.ok) {
           lastError = getErrorMessage(startData, `Video provider rejected the request (${startResponse.status}).`);
+          if ([401, 403, 408, 429, 500, 502, 503, 504].includes(startResponse.status)) {
+            markGeminiKeyFailure(apiKey, startResponse.status);
+          }
           if ([401, 403, 429, 500, 503].includes(startResponse.status)) break;
           continue;
         }
@@ -90956,7 +90960,7 @@ router6.post("/generate-video", async (req, res) => {
       } catch (error40) {
         lastError = error40 instanceof Error ? error40.message : "The video provider failed unexpectedly.";
         req.log.warn({ err: error40, model, keyIndex }, "Video generation attempt failed");
-        if (modelIndex === VIDEO_MODELS.length - 1 && keyIndex < GEMINI_KEYS4.length - 1) continue;
+        if (modelIndex === VIDEO_MODELS.length - 1 && keyIndex < keyCandidates.length - 1) continue;
       }
     }
   }

@@ -11,26 +11,13 @@ import {
 } from "@workspace/api-zod";
 import { eq, desc, and } from "drizzle-orm";
 import { getUserId } from "../lib/auth";
+import {
+  getGeminiKeyCandidates,
+  markGeminiKeyFailure,
+} from "../lib/geminiKeys";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const router = Router();
-
-const GEMINI_KEYS = [
-  process.env.GEMINI_API_KEY,
-  process.env.GEMINI_API_KEY_1,
-  process.env.GEMINI_API_KEY_2,
-  process.env.GEMINI_API_KEY_3,
-  process.env.GEMINI_API_KEY_4,
-].filter((key, index, keys): key is string => Boolean(key) && keys.indexOf(key) === index);
-
-let currentKeyIndex = 0;
-
-function getGeminiClient(): GoogleGenerativeAI {
-  if (GEMINI_KEYS.length === 0) throw new Error("No Gemini API keys configured");
-  const key = GEMINI_KEYS[currentKeyIndex % GEMINI_KEYS.length];
-  currentKeyIndex = (currentKeyIndex + 1) % GEMINI_KEYS.length;
-  return new GoogleGenerativeAI(key);
-}
 
 const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
@@ -56,12 +43,14 @@ async function geminiChat(
 ): Promise<AsyncIterable<string>> {
   const models = ["gemini-2.5-flash"];
   let lastErr: any;
-  const totalKeys = GEMINI_KEYS.length || 1;
+  const keyCandidates = getGeminiKeyCandidates();
+  if (keyCandidates.length === 0) throw new Error("No Gemini API keys configured");
 
   for (let modelIdx = 0; modelIdx < models.length; modelIdx++) {
-    for (let keyAttempt = 0; keyAttempt < totalKeys; keyAttempt++) {
+    for (let keyAttempt = 0; keyAttempt < keyCandidates.length; keyAttempt++) {
+      const keyEntry = keyCandidates[keyAttempt];
       try {
-        const genAI = getGeminiClient();
+        const genAI = new GoogleGenerativeAI(keyEntry.key);
         const model = genAI.getGenerativeModel({
           model: models[modelIdx],
           systemInstruction: systemPrompt,
@@ -100,7 +89,8 @@ async function geminiChat(
           || String(err?.message).includes("not found")
           || String(err?.message).includes("not supported")
           || String(err?.message).includes("deprecated");
-        if (isKeyUnavailable && keyAttempt < totalKeys - 1) {
+        if (isKeyUnavailable && keyAttempt < keyCandidates.length - 1) {
+          markGeminiKeyFailure(keyEntry.key, err?.status || 500);
           await sleep(300);
           continue;
         }
