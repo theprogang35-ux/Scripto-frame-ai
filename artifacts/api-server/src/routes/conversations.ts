@@ -50,6 +50,8 @@ async function geminiChat(
   systemPrompt: string,
   history: { role: "user" | "model"; parts: { text: string }[] }[],
   userMessage: string,
+  liveSearch = false,
+  imageUrl?: string | null,
 ): Promise<AsyncIterable<string>> {
   const models = ["gemini-2.5-flash"];
   let lastErr: any;
@@ -62,9 +64,24 @@ async function geminiChat(
         const model = genAI.getGenerativeModel({
           model: models[modelIdx],
           systemInstruction: systemPrompt,
+          ...(liveSearch ? {
+            tools: [{ googleSearchRetrieval: {} }],
+          } : {}),
         });
         const chat = model.startChat({ history });
-        const result = await chat.sendMessageStream(userMessage);
+        const userParts: any[] = [{ text: userMessage }];
+        if (imageUrl?.startsWith("data:image/")) {
+          const match = imageUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+          if (match) {
+            userParts.unshift({
+              inlineData: {
+                mimeType: match[1],
+                data: match[2],
+              },
+            });
+          }
+        }
+        const result = await chat.sendMessageStream(userParts);
         return (async function* () {
           for await (const chunk of result.stream) {
             const text = chunk.text();
@@ -332,7 +349,7 @@ router.post("/conversations/:id/messages", async (req, res) => {
   const body = SendMessageBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: body.error });
 
-  const { content, characterId, characterName, animeSeries, mode, imageUrl } = body.data;
+  const { content, characterId, characterName, animeSeries, mode, imageUrl, liveSearch } = body.data;
   const adultMode = !!(req.body as any).adultMode;
 
   // Store user message
@@ -365,7 +382,7 @@ router.post("/conversations/:id/messages", async (req, res) => {
   let fullResponse = "";
 
   try {
-    const stream = await geminiChat(systemPrompt, geminiHistory, content);
+    const stream = await geminiChat(systemPrompt, geminiHistory, content, liveSearch, imageUrl);
 
     for await (const text of stream) {
       fullResponse += text;

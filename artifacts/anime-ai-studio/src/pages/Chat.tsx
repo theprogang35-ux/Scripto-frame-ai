@@ -7,6 +7,7 @@ import { GlobalInputBar } from "@/components/GlobalInputBar";
 import { HistoryDrawer } from "@/components/HistoryDrawer";
 import { CHARACTER_EMOJI, CHARACTER_COLORS, MODES } from "@/data/characters";
 import { toast } from "sonner";
+import type { ChatAttachment } from "@/types/chat";
 
 interface LocalMessage {
   id: number;
@@ -71,6 +72,25 @@ export function ChatPage() {
         })),
       );
       setInitialized(true);
+    }
+  }, [conv, initialized]);
+
+  useEffect(() => {
+    if (!conv || !initialized) return;
+    try {
+      const pending = sessionStorage.getItem("scripto-pending-message");
+      if (!pending) return;
+      const parsed = JSON.parse(pending) as {
+        text?: string;
+        attachment?: ChatAttachment;
+        liveSearch?: boolean;
+      };
+      sessionStorage.removeItem("scripto-pending-message");
+      if (parsed.text) {
+        void sendMessage(parsed.text, parsed.attachment, parsed.liveSearch);
+      }
+    } catch {
+      sessionStorage.removeItem("scripto-pending-message");
     }
   }, [conv, initialized]);
 
@@ -155,7 +175,7 @@ export function ChatPage() {
     }
   }
 
-  async function sendMessage(text: string) {
+  async function sendMessage(text: string, attachment?: ChatAttachment, liveSearch = false) {
     if (isStreaming || !conv) return;
 
     const userMsg: LocalMessage = {
@@ -192,6 +212,8 @@ export function ChatPage() {
           characterName: conv.characterName,
           animeSeries: conv.animeSeries,
           mode: conv.mode,
+            imageUrl: attachment?.dataUrl || null,
+            liveSearch,
           adultMode: localStorage.getItem("adultMode") === "true",
         }),
         signal: abortRef.current.signal,
@@ -389,7 +411,10 @@ export function ChatPage() {
               )}
 
               {msg.role === "user" && (
-                <div className="max-w-[80%] px-4 py-3 rounded-2xl rounded-br-sm bg-gradient-to-br from-purple-600 to-purple-700 text-white text-sm leading-relaxed">
+                <div className="max-w-[80%] space-y-2 rounded-2xl rounded-br-sm bg-gradient-to-br from-purple-600 to-purple-700 px-4 py-3 text-sm leading-relaxed text-white">
+                  {msg.imageUrl && (
+                    <img src={msg.imageUrl} alt="Attached file" className="max-h-56 max-w-full rounded-xl object-contain" />
+                  )}
                   <span className="whitespace-pre-wrap">{msg.content}</span>
                 </div>
               )}

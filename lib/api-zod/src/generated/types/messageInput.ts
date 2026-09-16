@@ -14,4 +14,5 @@ export interface MessageInput {
   mode: string;
   /** @nullable */
   imageUrl?: string | null;
+  liveSearch?: boolean;
 }

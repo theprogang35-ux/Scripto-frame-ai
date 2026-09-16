@@ -51264,7 +51264,8 @@ var SendMessageBody = objectType({
   "characterName": stringType(),
   "animeSeries": stringType(),
   "mode": stringType(),
-  "imageUrl": stringType().nullish()
+  "imageUrl": stringType().nullish(),
+  "liveSearch": booleanType().optional()
 });
 var ListMessagesParams = objectType({
   "id": coerce.number()
@@ -69744,7 +69745,7 @@ function getUserFacingGeminiError(error40) {
   }
   return "Gemini is temporarily unavailable. Please try again.";
 }
-async function geminiChat(systemPrompt, history, userMessage) {
+async function geminiChat(systemPrompt, history, userMessage, liveSearch = false, imageUrl) {
   const models = ["gemini-2.5-flash"];
   let lastErr;
   const totalKeys = GEMINI_KEYS.length || 1;
@@ -69754,10 +69755,25 @@ async function geminiChat(systemPrompt, history, userMessage) {
         const genAI = getGeminiClient();
         const model = genAI.getGenerativeModel({
           model: models[modelIdx],
-          systemInstruction: systemPrompt
+          systemInstruction: systemPrompt,
+          ...liveSearch ? {
+            tools: [{ googleSearchRetrieval: {} }]
+          } : {}
         });
         const chat = model.startChat({ history });
-        const result = await chat.sendMessageStream(userMessage);
+        const userParts = [{ text: userMessage }];
+        if (imageUrl?.startsWith("data:image/")) {
+          const match2 = imageUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+          if (match2) {
+            userParts.unshift({
+              inlineData: {
+                mimeType: match2[1],
+                data: match2[2]
+              }
+            });
+          }
+        }
+        const result = await chat.sendMessageStream(userParts);
         return (async function* () {
           for await (const chunk of result.stream) {
             const text2 = chunk.text();
@@ -69952,7 +69968,7 @@ router2.post("/conversations/:id/messages", async (req, res) => {
   if (!params.success) return res.status(400).json({ error: "Invalid id" });
   const body = SendMessageBody.safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: body.error });
-  const { content, characterId, characterName, animeSeries, mode, imageUrl } = body.data;
+  const { content, characterId, characterName, animeSeries, mode, imageUrl, liveSearch } = body.data;
   const adultMode = !!req.body.adultMode;
   await db.insert(messagesTable).values({
     conversationId: params.data.id,
@@ -69971,7 +69987,7 @@ router2.post("/conversations/:id/messages", async (req, res) => {
   res.setHeader("Connection", "keep-alive");
   let fullResponse = "";
   try {
-    const stream = await geminiChat(systemPrompt, geminiHistory, content);
+    const stream = await geminiChat(systemPrompt, geminiHistory, content, liveSearch, imageUrl);
     for await (const text2 of stream) {
       fullResponse += text2;
       res.write(`data: ${JSON.stringify({ content: text2 })}

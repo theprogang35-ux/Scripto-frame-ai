@@ -1,10 +1,11 @@
 import { useState, useRef } from "react";
 import { motion } from "framer-motion";
-import { Plus, Monitor, Send, Image, Video, FileText, X } from "lucide-react";
+import { Plus, Monitor, Send, Upload, X, File as FileIcon, Globe2 } from "lucide-react";
 import { useLocation } from "wouter";
 import { useCreateConversation } from "@workspace/api-client-react";
 import { toast } from "sonner";
 import { AnimatePresence } from "framer-motion";
+import type { ChatAttachment } from "@/types/chat";
 
 interface GlobalInputBarProps {
   selectedCharacter?: {
@@ -14,16 +15,16 @@ interface GlobalInputBarProps {
   } | null;
   onCharacterNeeded?: () => void;
   conversationId?: number;
-  onSendMessage?: (text: string) => void;
+  onSendMessage?: (text: string, attachment?: ChatAttachment, liveSearch?: boolean) => void;
 }
 
 export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversationId, onSendMessage }: GlobalInputBarProps) {
   const [text, setText] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
+  const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
+  const [liveSearch, setLiveSearch] = useState(false);
   const [, setLocation] = useLocation();
-  const photoRef = useRef<HTMLInputElement>(null);
-  const videoRef = useRef<HTMLInputElement>(null);
-  const docRef = useRef<HTMLInputElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const createConversation = useCreateConversation();
 
   async function handleScreenCapture() {
@@ -36,11 +37,17 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
   }
 
   function handleSend() {
-    if (!text.trim()) return;
+    if (!text.trim() && !attachment) return;
+    const attachmentLabel = attachment ? `[Attached file: ${attachment.name}]` : "";
+    const fileContext = attachment?.textContent
+      ? `\n\n[File contents]\n${attachment.textContent}`
+      : "";
+    const messageText = [text.trim(), attachmentLabel].filter(Boolean).join("\n\n") + fileContext;
 
     if (conversationId && onSendMessage) {
-      onSendMessage(text.trim());
+      onSendMessage(messageText, attachment || undefined, liveSearch);
       setText("");
+      setAttachment(null);
       return;
     }
 
@@ -60,8 +67,20 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
       },
       {
         onSuccess: (conv) => {
+          if (messageText) {
+            try {
+              sessionStorage.setItem("scripto-pending-message", JSON.stringify({
+                text: messageText,
+                attachment,
+                liveSearch,
+              }));
+            } catch {
+              toast.error("Attachment could not be prepared.");
+            }
+          }
           setLocation(`/chat/${conv.id}`);
           setText("");
+          setAttachment(null);
         },
         onError: () => {
           toast.error("Failed to start conversation.");
@@ -77,36 +96,48 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
     }
   }
 
-  function handlePhotoUpload(file: File | undefined) {
+  function handleFileUpload(file: globalThis.File | undefined) {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file.");
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("File must be smaller than 15 MB.");
       return;
     }
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error("Photo must be smaller than 8 MB.");
+
+    const baseAttachment: ChatAttachment = { name: file.name, type: file.type || "application/octet-stream", size: file.size };
+    const isText = file.type.startsWith("text/")
+      || /\.(txt|md|csv|json|js|ts|tsx|jsx|html|css|xml|yaml|yml)$/i.test(file.name);
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string") {
+          toast.error("File could not be read.");
+          return;
+        }
+        setAttachment({ ...baseAttachment, dataUrl: reader.result });
+        toast.success(`${file.name} attached.`);
+      };
+      reader.onerror = () => toast.error("File could not be read.");
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    if (!isText) {
+      setAttachment(baseAttachment);
+      toast.success(`${file.name} attached. Send a message to share it with the chat.`);
       return;
     }
 
     const reader = new FileReader();
     reader.onload = () => {
       if (typeof reader.result !== "string") {
-        toast.error("Photo could not be read.");
+        toast.error("File could not be read.");
         return;
       }
-      try {
-        sessionStorage.setItem("scripto-pending-photo", JSON.stringify({
-          dataUrl: reader.result,
-          name: file.name,
-        }));
-        toast.success("Photo uploaded. Opening editor...");
-        setLocation("/create-edit");
-      } catch {
-        toast.error("Photo is too large for browser storage. Try a smaller image.");
-      }
+      setAttachment({ ...baseAttachment, textContent: reader.result.slice(0, 60_000) });
+      toast.success(`${file.name} attached.`);
     };
-    reader.onerror = () => toast.error("Photo could not be read.");
-    reader.readAsDataURL(file);
+    reader.onerror = () => toast.error("File could not be read.");
+    reader.readAsText(file);
   }
 
   return (
@@ -134,49 +165,33 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
                   <X size={16} />
                 </button>
               </div>
-              <div className="grid grid-cols-3 gap-3">
-                <button
-                  onClick={() => { photoRef.current?.click(); setUploadOpen(false); }}
-                  data-testid="btn-upload-photo"
-                  className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[#111] border border-purple-900/20 hover:border-purple-600/40 transition-all"
-                >
-                  <Image size={22} className="text-purple-400" />
-                  <span className="text-gray-300 text-xs">Photo</span>
-                </button>
-                <button
-                  onClick={() => { videoRef.current?.click(); setUploadOpen(false); }}
-                  data-testid="btn-upload-video"
-                  className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[#111] border border-purple-900/20 hover:border-purple-600/40 transition-all"
-                >
-                  <Video size={22} className="text-cyan-400" />
-                  <span className="text-gray-300 text-xs">Video</span>
-                </button>
-                <button
-                  onClick={() => { docRef.current?.click(); setUploadOpen(false); }}
-                  data-testid="btn-upload-doc"
-                  className="flex flex-col items-center gap-2 p-4 rounded-xl bg-[#111] border border-purple-900/20 hover:border-purple-600/40 transition-all"
-                >
-                  <FileText size={22} className="text-emerald-400" />
-                  <span className="text-gray-300 text-xs">Document</span>
-                </button>
-              </div>
+              <button
+                onClick={() => { fileRef.current?.click(); setUploadOpen(false); }}
+                data-testid="btn-upload-file"
+                className="flex w-full items-center gap-3 rounded-xl border border-purple-900/20 bg-[#111] p-4 text-left transition-all hover:border-purple-600/40"
+              >
+                <Upload size={22} className="text-purple-400" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Upload files</p>
+                  <p className="mt-0.5 text-xs text-gray-500">Photos, videos, PDFs, documents and more · up to 15 MB</p>
+                </div>
+              </button>
+              <p className="mt-3 text-center text-[11px] text-gray-600">Files stay attached to this conversation until you send them.</p>
             </motion.div>
           </>
         )}
       </AnimatePresence>
 
       <input
-        ref={photoRef}
+        ref={fileRef}
         type="file"
-        accept="image/*"
+        multiple={false}
         className="hidden"
         onChange={(event) => {
-          handlePhotoUpload(event.target.files?.[0]);
+          handleFileUpload(event.target.files?.[0]);
           event.target.value = "";
         }}
       />
-      <input ref={videoRef} type="file" accept="video/*" className="hidden" onChange={() => toast.success("Video uploaded!")} />
-      <input ref={docRef} type="file" accept=".pdf,.doc,.docx,.txt" className="hidden" onChange={() => toast.success("Document uploaded!")} />
 
       <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-5 pt-2 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none">
         <motion.div
@@ -192,6 +207,28 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
             <Plus size={18} className="text-purple-400" />
           </button>
 
+          {attachment && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 flex items-center gap-2 rounded-xl border border-purple-900/30 bg-[#111] px-3 py-2">
+              <FileIcon size={15} className="shrink-0 text-purple-300" />
+              <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{attachment.name}</span>
+              <button type="button" onClick={() => setAttachment(null)} className="text-gray-500 hover:text-white">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          {conversationId && (
+            <button
+              type="button"
+              onClick={() => setLiveSearch((value) => !value)}
+              title={liveSearch ? "Live Search is on" : "Turn on Live Search"}
+              className={`flex h-8 shrink-0 items-center gap-1 rounded-xl px-2 text-[11px] font-semibold transition-colors ${
+                liveSearch ? "bg-cyan-400/15 text-cyan-300" : "text-gray-500 hover:bg-cyan-400/10 hover:text-cyan-300"
+              }`}
+            >
+              <Globe2 size={15} />
+              <span className="hidden sm:inline">Live</span>
+            </button>
+          )}
           <input
             type="text"
             value={text}

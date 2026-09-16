@@ -63,6 +63,7 @@ export function CreateEditPage() {
   const [editFilter, setEditFilter] = useState<EditFilter>("original");
   const [rotation, setRotation] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const photopeaRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
     try {
@@ -79,6 +80,17 @@ export function CreateEditPage() {
       sessionStorage.removeItem("scripto-pending-photo");
     }
   }, []);
+
+  useEffect(() => {
+    if (screen !== "photo-editor" || !uploadedPhoto) return;
+    const timer = window.setTimeout(() => {
+      photopeaRef.current?.contentWindow?.postMessage(
+        { action: "open", files: [uploadedPhoto] },
+        "https://www.photopea.com",
+      );
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [screen, uploadedPhoto]);
 
   function goBack() {
     if (screen === "main") { setLocation("/studio"); return; }
@@ -299,8 +311,8 @@ export function CreateEditPage() {
                 <Palette size={28} className="text-cyan-400" />
               </div>
               <div className="flex-1">
-                <div className="text-white font-bold text-lg">Photo Edit</div>
-                <div className="text-gray-500 text-sm mt-1">Photo upload karo — filters, rotate aur download</div>
+                <div className="text-white font-bold text-lg">Photoshop Editor</div>
+                <div className="text-gray-500 text-sm mt-1">Photoshop-style layers, filters aur tools</div>
                 <div className="flex items-center gap-1.5 mt-2">
                   <div className="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse" />
                   <span className="text-cyan-400 text-xs font-semibold">Photoshop-level Editor</span>
@@ -419,21 +431,19 @@ export function CreateEditPage() {
             <div className="flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-5">
               {uploadedPhoto ? (
                 <>
-                  <div className="flex min-h-[45vh] items-center justify-center overflow-hidden rounded-3xl border border-cyan-400/20 bg-[#090909] p-3">
-                    <img
-                      src={uploadedPhoto}
-                      alt={uploadedFileName}
-                      className="max-h-[58vh] max-w-full object-contain transition-transform"
-                      style={{
-                        filter: EDIT_FILTERS[editFilter].css,
-                        transform: `rotate(${rotation}deg)`,
-                      }}
+                  <div className="flex min-h-[68vh] overflow-hidden rounded-2xl border border-white/10 bg-[#171717]">
+                    <iframe
+                      ref={photopeaRef}
+                      src="https://www.photopea.com"
+                      title="Photoshop-style photo editor"
+                      className="h-[68vh] w-full border-0"
+                      allow="clipboard-read; clipboard-write"
                     />
                   </div>
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-white">{uploadedFileName}</p>
-                      <p className="text-xs text-gray-500">Edit preview is local and private to this browser.</p>
+                      <p className="text-xs text-gray-500">Photopea Photoshop-style editor mein open ki gayi hai.</p>
                     </div>
                     <button
                       type="button"
@@ -441,7 +451,7 @@ export function CreateEditPage() {
                       className="flex items-center gap-2 rounded-xl border border-white/10 px-3 py-2 text-xs font-semibold text-gray-200 hover:border-cyan-400/40"
                     >
                       <RotateCw size={14} />
-                      Rotate
+                      Quick rotate
                     </button>
                   </div>
                   <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

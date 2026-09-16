@@ -245,6 +245,9 @@ components:
           type: string
         imageUrl:
           type: ["string", "null"]
+        liveSearch:
+          type: boolean
+          description: Enable Google live search grounding for this message.
         createdAt:
           type: string
 

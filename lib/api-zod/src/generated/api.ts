@@ -94,7 +94,8 @@ export const SendMessageBody = zod.object({
   "characterName": zod.string(),
   "animeSeries": zod.string(),
   "mode": zod.string(),
-  "imageUrl": zod.string().nullish()
+  "imageUrl": zod.string().nullish(),
+  "liveSearch": zod.boolean().optional()
 })
 
 
