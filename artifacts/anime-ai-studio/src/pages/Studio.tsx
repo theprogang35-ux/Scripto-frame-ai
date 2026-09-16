@@ -67,15 +67,13 @@ const FEATURES = [
     glow: "rgba(34,197,94,0.15)",
   },
   {
-    id: "skincreator",
-    label: "Create Original Anime Character",
-    desc: "Gojo/Naruto/Luffy jaise styles se inspire hokar apna naya character banao",
-    emoji: "🧬",
-    mode: "skincreator",
-    color: "#8b5cf6",
-    glow: "rgba(139,92,246,0.15)",
-    isPage: true,
-    page: "/character-creator",
+    id: "workspace",
+    label: "Scripto AI Workspace",
+    desc: "Chat, writing, live search, files, images, video aur learning — sab ek jagah",
+    emoji: "✨",
+    mode: "chat",
+    color: "#a855f7",
+    glow: "rgba(168,85,247,0.18)",
   },
 ];
 
