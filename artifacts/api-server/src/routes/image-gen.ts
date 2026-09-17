@@ -50,9 +50,18 @@ router.post("/generate-image", async (req, res) => {
   const userId = getUserId(req);
   if (!userId) return res.status(401).json({ error: "Unauthorized" });
 
-  const { description, size = "square", style = "anime" } = req.body;
+  const { description, referenceImage, size = "square", style = "anime" } = req.body;
   if (!description || typeof description !== "string") {
     return res.status(400).json({ error: "description required" });
+  }
+  if (referenceImage !== undefined && (
+    typeof referenceImage !== "string"
+    || !/^data:image\/[a-z0-9.+-]+;base64,[a-z0-9+/=\s]+$/i.test(referenceImage)
+  )) {
+    return res.status(400).json({ error: "referenceImage must be a valid image data URL" });
+  }
+  if (typeof referenceImage === "string" && referenceImage.length > 9_000_000) {
+    return res.status(413).json({ error: "Reference photo is too large. Please choose a smaller photo." });
   }
 
   const sizeHint = SIZE_PROMPTS[size] || SIZE_PROMPTS.square;
@@ -63,7 +72,9 @@ router.post("/generate-image", async (req, res) => {
       ? "photorealistic, hyper-detailed, cinematic lighting"
       : "digital art, concept art style";
 
-  const fullPrompt = `${description}. ${styleHint}, ${sizeHint}, high quality, masterpiece`;
+  const fullPrompt = referenceImage
+    ? `Use the attached photo as the main visual reference. Follow this instruction exactly: ${description}. Preserve important subject details unless the instruction asks to change them. ${styleHint}, ${sizeHint}, high quality, masterpiece`
+    : `${description}. ${styleHint}, ${sizeHint}, high quality, masterpiece`;
 
   if (getGeminiKeyCount() === 0) {
     return res.status(503).json({ error: "Image generation is not configured yet." });
@@ -80,7 +91,19 @@ router.post("/generate-image", async (req, res) => {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            contents: [{ parts: [{ text: fullPrompt }] }],
+            contents: [{
+              parts: [
+                ...(referenceImage
+                  ? [{
+                      inlineData: {
+                        mimeType: referenceImage.match(/^data:(image\/[^;]+);base64,/)?.[1] || "image/jpeg",
+                        data: referenceImage.replace(/^data:image\/[^;]+;base64,/, ""),
+                      },
+                    }]
+                  : []),
+                { text: fullPrompt },
+              ],
+            }],
             generationConfig: { responseModalities: ["TEXT", "IMAGE"] },
           }),
         }

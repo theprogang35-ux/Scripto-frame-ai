@@ -2,7 +2,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   ArrowLeft, Wand2, ChevronRight, Image as ImageIcon, Palette,
-  Download, RefreshCw, Sparkles, Upload, RotateCw, Sun, Contrast, CircleOff
+  Download, RefreshCw, Sparkles, Upload, RotateCw, Sun, Contrast, CircleOff, X
 } from "lucide-react";
 import { useLocation } from "wouter";
 import { toast } from "sonner";
@@ -59,11 +59,14 @@ export function CreateEditPage() {
   const [generating, setGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
   const [imageError, setImageError] = useState<string | null>(null);
+  const [generationReferencePhoto, setGenerationReferencePhoto] = useState<string | null>(null);
+  const [generationReferenceFileName, setGenerationReferenceFileName] = useState("");
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState("edited-photo.png");
   const [editFilter, setEditFilter] = useState<EditFilter>("original");
   const [rotation, setRotation] = useState(0);
   const photoInputRef = useRef<HTMLInputElement>(null);
+  const generationPhotoInputRef = useRef<HTMLInputElement>(null);
   const photopeaRef = useRef<HTMLIFrameElement>(null);
 
   useEffect(() => {
@@ -135,6 +138,72 @@ export function CreateEditPage() {
     setScreen("photo-sub");
   }
 
+  async function handleGenerationPhotoSelected(file: File | undefined) {
+    if (!file) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a photo image.");
+      return;
+    }
+    if (file.size > 18 * 1024 * 1024) {
+      toast.error("Photo must be smaller than 18 MB.");
+      return;
+    }
+
+    try {
+      let dataUrl: string;
+      if (file.size <= 6 * 1024 * 1024) {
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => typeof reader.result === "string"
+            ? resolve(reader.result)
+            : reject(new Error("Photo could not be read."));
+          reader.onerror = () => reject(new Error("Photo could not be read."));
+          reader.readAsDataURL(file);
+        });
+      } else {
+        dataUrl = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result !== "string") {
+              reject(new Error("Photo could not be read."));
+              return;
+            }
+            const image = new Image();
+            image.onload = () => {
+              const scale = Math.min(1, 2048 / Math.max(image.naturalWidth, image.naturalHeight));
+              const canvas = document.createElement("canvas");
+              canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+              canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+              const context = canvas.getContext("2d");
+              if (!context) {
+                reject(new Error("Photo could not be prepared."));
+                return;
+              }
+              context.drawImage(image, 0, 0, canvas.width, canvas.height);
+              resolve(canvas.toDataURL("image/jpeg", 0.86));
+            };
+            image.onerror = () => reject(new Error("Photo could not be loaded."));
+            image.src = reader.result;
+          };
+          reader.onerror = () => reject(new Error("Photo could not be read."));
+          reader.readAsDataURL(file);
+        });
+      }
+
+      setGenerationReferencePhoto(dataUrl);
+      setGenerationReferenceFileName(file.name || "reference-photo");
+      setImageError(null);
+      toast.success(`${file.name || "Photo"} prompt ke saath attach ho gayi.`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Photo could not be prepared.");
+    }
+  }
+
+  function clearGenerationReferencePhoto() {
+    setGenerationReferencePhoto(null);
+    setGenerationReferenceFileName("");
+  }
+
   function downloadEditedPhoto() {
     if (!uploadedPhoto) return;
     const image = new Image();
@@ -172,7 +241,10 @@ export function CreateEditPage() {
       const res = await fetch("/api/generate-image", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ description }),
+        body: JSON.stringify({
+          description,
+          referenceImage: generationReferencePhoto || undefined,
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -226,6 +298,16 @@ export function CreateEditPage() {
         className="hidden"
         onChange={(event) => {
           handlePhotoSelected(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+      <input
+        ref={generationPhotoInputRef}
+        type="file"
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          void handleGenerationPhotoSelected(event.target.files?.[0]);
           event.target.value = "";
         }}
       />
@@ -283,7 +365,13 @@ export function CreateEditPage() {
             {/* Sub-option 1: Image Generation */}
             <motion.button
               whileTap={{ scale: 0.97 }}
-              onClick={() => { setGeneratedImage(null); setDescription(""); setScreen("image-gen"); }}
+              onClick={() => {
+                setGeneratedImage(null);
+                setDescription("");
+                setImageError(null);
+                clearGenerationReferencePhoto();
+                setScreen("image-gen");
+              }}
               className="w-full flex items-center gap-5 p-6 rounded-3xl text-left relative overflow-hidden"
               style={{
                 background: "linear-gradient(135deg, rgba(147,51,234,0.14) 0%, rgba(0,242,255,0.07) 100%)",
@@ -372,15 +460,55 @@ export function CreateEditPage() {
               </div>
             ) : (
               <div className="space-y-5">
+                <div className="rounded-2xl border border-purple-900/30 bg-[#0d0d0d] p-3">
+                  {generationReferencePhoto ? (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={generationReferencePhoto}
+                        alt="Attached reference"
+                        className="h-16 w-16 rounded-xl border border-white/10 object-cover"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold text-white">{generationReferenceFileName}</p>
+                        <p className="mt-1 text-xs text-gray-500">Prompt ke saath is photo ko reference/edit ke liye use kiya jayega.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearGenerationReferencePhoto}
+                        aria-label="Remove attached photo"
+                        className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl text-gray-500 hover:bg-rose-500/10 hover:text-rose-300"
+                      >
+                        <X size={17} />
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => generationPhotoInputRef.current?.click()}
+                      className="flex w-full items-center gap-3 rounded-xl border border-dashed border-purple-500/30 px-3 py-3 text-left transition-colors hover:border-purple-400/60 hover:bg-purple-500/[0.06]"
+                    >
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-purple-500/15">
+                        <Upload size={18} className="text-purple-300" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white">Photo add karo</p>
+                        <p className="mt-0.5 text-xs text-gray-500">Keyboard ke upload button ki tarah — koi bhi photo select karo</p>
+                      </div>
+                    </button>
+                  )}
+                </div>
+
                 {/* Description */}
                 <div>
                   <label className="text-gray-400 text-xs font-semibold uppercase tracking-wider mb-2 block">
-                    Image Description
+                    Prompt / Image Description
                   </label>
                   <textarea
                     value={description}
                     onChange={(e) => setDescription(e.target.value)}
-                    placeholder={"Jaise:\n• Gojo Satoru infinity void ke andar, blue glow\n• Naruto sage mode, orange background\n• Anime girl with butterfly wings, sunset"}
+                    placeholder={generationReferencePhoto
+                      ? "Photo ko kaise edit ya transform karna hai?\n• Background sunset kar do\n• Anime style mein convert karo\n• Blue jacket add karo"
+                      : "Jaise:\n• Gojo Satoru infinity void ke andar, blue glow\n• Naruto sage mode, orange background\n• Anime girl with butterfly wings, sunset"}
                     rows={5}
                     className="w-full bg-[#0d0d0d] border border-purple-900/30 rounded-2xl px-4 py-3 text-white text-sm placeholder:text-gray-700 outline-none focus:border-purple-500/60 resize-none"
                   />
