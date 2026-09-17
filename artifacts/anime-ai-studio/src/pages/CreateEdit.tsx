@@ -16,6 +16,59 @@ const EDIT_FILTERS = {
 
 type EditFilter = keyof typeof EDIT_FILTERS;
 
+type PuterImageOptions = {
+  provider: "openai-image-generation";
+  model: "gpt-image-1-mini";
+  quality: "low";
+  input_image?: string;
+};
+
+type PuterApi = {
+  ai: {
+    txt2img: (prompt: string, options?: PuterImageOptions) => Promise<HTMLImageElement>;
+  };
+};
+
+declare global {
+  interface Window {
+    puter?: PuterApi;
+  }
+}
+
+const PUTER_SCRIPT_SRC = "https://js.puter.com/v2/";
+
+function loadPuter(): Promise<PuterApi> {
+  if (typeof window === "undefined") {
+    return Promise.reject(new Error("Image provider is only available in a browser."));
+  }
+  if (window.puter?.ai?.txt2img) return Promise.resolve(window.puter);
+
+  return new Promise((resolve, reject) => {
+    const existing = document.querySelector<HTMLScriptElement>(`script[src="${PUTER_SCRIPT_SRC}"]`);
+    const checkReady = () => {
+      if (window.puter?.ai?.txt2img) {
+        resolve(window.puter);
+      } else {
+        reject(new Error("Puter image service could not be loaded. Check your internet connection and try again."));
+      }
+    };
+
+    if (existing) {
+      existing.addEventListener("load", checkReady, { once: true });
+      existing.addEventListener("error", () => reject(new Error("Puter image service could not be loaded.")), { once: true });
+      window.setTimeout(checkReady, 1500);
+      return;
+    }
+
+    const script = document.createElement("script");
+    script.src = PUTER_SCRIPT_SRC;
+    script.async = true;
+    script.onload = checkReady;
+    script.onerror = () => reject(new Error("Puter image service could not be loaded. Check your internet connection and try again."));
+    document.head.appendChild(script);
+  });
+}
+
 function GeneratingLoader() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#020208]">
@@ -238,29 +291,28 @@ export function CreateEditPage() {
     setGenerating(true);
     setImageError(null);
     try {
-      const res = await fetch("/api/generate-image", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          description,
-          referenceImage: generationReferencePhoto || undefined,
-        }),
+      const puter = await loadPuter();
+      const prompt = generationReferencePhoto
+        ? `Use the attached photo as the main visual reference. Follow this instruction: ${description}. Preserve important subject details unless the instruction asks to change them.`
+        : description;
+      const image = await puter.ai.txt2img(prompt, {
+        provider: "openai-image-generation",
+        model: "gpt-image-1-mini",
+        quality: "low",
+        ...(generationReferencePhoto ? { input_image: generationReferencePhoto } : {}),
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        if (res.status === 429) {
-          throw new Error("Image generation quota unavailable. API keys rotate ho rahi hain, lekin configured Google project mein image quota 0 hai. Billing enable karo ya kisi alag Google project ki Gemini key add karo.");
-        }
-        throw new Error(data?.error || "Image generation failed");
-      }
-      if (data.imageUrl) {
-        setGeneratedImage(data.imageUrl);
+      if (image?.src) {
+        setGeneratedImage(image.src);
         toast.success("Image ban gayi! 🎨");
       } else {
         throw new Error("Image response empty hai. Dobara try karo.");
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Image generation failed";
+      const providerMessage = error && typeof error === "object" && "message" in error
+        ? String((error as { message?: unknown }).message || "")
+        : "";
+      const message = providerMessage
+        || (error instanceof Error ? error.message : "Puter image generation failed");
       setImageError(message);
       toast.error(message);
     } finally {
@@ -540,6 +592,9 @@ export function CreateEditPage() {
                 <div className="p-3 rounded-xl bg-[#0a0a0a] border border-gray-900">
                   <p className="text-gray-600 text-xs text-center">
                     💡 Tip: Jitna detailed description doge — utni badhiya image aayegi
+                  </p>
+                  <p className="mt-2 text-center text-[11px] text-gray-700">
+                    Puter / OpenAI image service use ho rahi hai. Photo generation ke liye third-party service ko bheji jayegi; availability aur usage limits provider par depend karti hain.
                   </p>
                 </div>
               </div>
