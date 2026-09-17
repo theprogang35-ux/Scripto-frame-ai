@@ -58,6 +58,7 @@ export function CreateEditPage() {
   const [description, setDescription] = useState("");
   const [generating, setGenerating] = useState(false);
   const [generatedImage, setGeneratedImage] = useState<string | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
   const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null);
   const [uploadedFileName, setUploadedFileName] = useState("edited-photo.png");
   const [editFilter, setEditFilter] = useState<EditFilter>("original");
@@ -166,6 +167,7 @@ export function CreateEditPage() {
   async function handleGenerate() {
     if (!description.trim()) { toast.error("Pehle description likho!"); return; }
     setGenerating(true);
+    setImageError(null);
     try {
       const res = await fetch("/api/generate-image", {
         method: "POST",
@@ -174,6 +176,9 @@ export function CreateEditPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
+        if (res.status === 429) {
+          throw new Error("Image generation quota unavailable. API keys rotate ho rahi hain, lekin configured Google project mein image quota 0 hai. Billing enable karo ya kisi alag Google project ki Gemini key add karo.");
+        }
         throw new Error(data?.error || "Image generation failed");
       }
       if (data.imageUrl) {
@@ -183,7 +188,9 @@ export function CreateEditPage() {
         throw new Error("Image response empty hai. Dobara try karo.");
       }
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Image generation failed");
+      const message = error instanceof Error ? error.message : "Image generation failed";
+      setImageError(message);
+      toast.error(message);
     } finally {
       setGenerating(false);
     }
@@ -391,6 +398,16 @@ export function CreateEditPage() {
                   <Wand2 size={18} />
                   Generate Image ✨
                 </motion.button>
+
+                {imageError && (
+                  <div
+                    role="alert"
+                    className="rounded-2xl border border-amber-400/30 bg-amber-400/[0.08] px-4 py-3 text-sm leading-5 text-amber-200"
+                  >
+                    <div className="font-semibold">Image generation unavailable</div>
+                    <p className="mt-1 text-xs leading-5 text-amber-100/70">{imageError}</p>
+                  </div>
+                )}
 
                 <div className="p-3 rounded-xl bg-[#0a0a0a] border border-gray-900">
                   <p className="text-gray-600 text-xs text-center">
