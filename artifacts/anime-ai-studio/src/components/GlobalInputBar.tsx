@@ -1,0 +1,432 @@
+import { useState, useRef } from "react";
+import { motion } from "framer-motion";
+import { Plus, Monitor, Send, Upload, X, File as FileIcon, Globe2, Mic, MicOff } from "lucide-react";
+import { useLocation } from "wouter";
+import { useCreateConversation } from "@workspace/api-client-react";
+import { toast } from "sonner";
+import { AnimatePresence } from "framer-motion";
+import type { ChatAttachment } from "@/types/chat";
+
+interface GlobalInputBarProps {
+  selectedCharacter?: {
+    id: string;
+    name: string;
+    series: string;
+  } | null;
+  onCharacterNeeded?: () => void;
+  conversationId?: number;
+  onSendMessage?: (text: string, attachment?: ChatAttachment, liveSearch?: boolean) => void;
+}
+
+export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversationId, onSendMessage }: GlobalInputBarProps) {
+  const [text, setText] = useState("");
+  const [uploadOpen, setUploadOpen] = useState(false);
+  const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
+  const [liveSearch, setLiveSearch] = useState(false);
+  const [, setLocation] = useLocation();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const createConversation = useCreateConversation();
+  const recognitionRef = useRef<{ start: () => void; stop: () => void; onresult: ((event: SpeechRecognitionEventLike) => void) | null; onerror: ((event: { error?: string }) => void) | null; onend: (() => void) | null } | null>(null);
+  const dictationBaseRef = useRef("");
+  const [isListening, setIsListening] = useState(false);
+
+  interface SpeechRecognitionEventLike {
+    resultIndex: number;
+    results: ArrayLike<{ isFinal: boolean; [index: number]: { transcript: string } }>;
+  }
+
+  async function handleScreenCapture() {
+    let stream: MediaStream | null = null;
+    try {
+      if (!window.isSecureContext) {
+        toast.error("Screen capture requires a secure connection (HTTPS or localhost).");
+        return;
+      }
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        toast.error("Screen capture is not supported by this browser.");
+        return;
+      }
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      await new Promise<void>((resolve, reject) => {
+        const timeout = window.setTimeout(() => reject(new Error("The selected screen did not become ready.")), 5000);
+        video.onloadedmetadata = () => {
+          window.clearTimeout(timeout);
+          resolve();
+        };
+        video.onerror = () => {
+          window.clearTimeout(timeout);
+          reject(new Error("The selected screen could not be read."));
+        };
+      });
+      await video.play();
+      if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+        await new Promise<void>((resolve, reject) => {
+          const timeout = window.setTimeout(() => reject(new Error("The selected screen did not produce a frame.")), 5000);
+          video.onloadeddata = () => {
+            window.clearTimeout(timeout);
+            resolve();
+          };
+          video.onerror = () => {
+            window.clearTimeout(timeout);
+            reject(new Error("The selected screen could not be read."));
+          };
+        });
+      }
+      if (!video.videoWidth || !video.videoHeight) throw new Error("The selected screen did not provide an image.");
+
+      const maxDimension = 1920;
+      const scale = Math.min(1, maxDimension / Math.max(video.videoWidth, video.videoHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(video.videoWidth * scale));
+      canvas.height = Math.max(1, Math.round(video.videoHeight * scale));
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Your browser could not prepare the screen image.");
+      context.drawImage(video, 0, 0, canvas.width, canvas.height);
+      let imageBlob: Blob | null = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.82));
+      if (!imageBlob) throw new Error("The screen image could not be encoded.");
+      // Keep the base64 attachment below browser session-storage and API JSON body limits.
+      const maxCaptureBytes = 3 * 1024 * 1024;
+      for (const quality of [0.68, 0.52, 0.38, 0.28]) {
+        if (imageBlob.size <= maxCaptureBytes) break;
+        imageBlob = await new Promise((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (!imageBlob) throw new Error("The screen image could not be encoded.");
+      }
+      if (imageBlob.size > maxCaptureBytes) {
+        throw new Error("The captured image is too large to attach. Try sharing a single window or tab.");
+      }
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("The screen image could not be prepared."));
+        reader.onerror = () => reject(new Error("The screen image could not be prepared."));
+        reader.readAsDataURL(imageBlob!);
+      });
+      setAttachment({ name: `screen-capture-${new Date().toISOString().replace(/[:.]/g, "-")}.jpg`, type: "image/jpeg", size: imageBlob.size, dataUrl });
+      toast.success("Screen image attached. It will be sent with your next message.");
+    } catch (error) {
+      const issue = error as DOMException;
+      if (issue?.name === "NotAllowedError" || issue?.name === "AbortError") {
+        toast.error(issue.name === "AbortError" ? "Screen capture was cancelled." : "Screen sharing permission was denied or cancelled.");
+      } else {
+        toast.error(error instanceof Error ? error.message : "Screen capture could not be completed.");
+      }
+    } finally {
+      for (const track of stream?.getTracks() ?? []) {
+        try {
+          track.stop();
+        } catch {
+          // Stop remaining tracks even if a browser rejects stopping one track.
+        }
+      }
+    }
+  }
+
+  function toggleDictation() {
+    if (isListening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+    type RecognitionConstructor = new () => NonNullable<typeof recognitionRef.current>;
+    const speechWindow = window as Window & { SpeechRecognition?: RecognitionConstructor; webkitSpeechRecognition?: RecognitionConstructor };
+    const Recognition = speechWindow.SpeechRecognition || speechWindow.webkitSpeechRecognition;
+    if (!Recognition) {
+      toast.error("Voice dictation is not supported by this browser.");
+      return;
+    }
+    try {
+      const recognition = new Recognition();
+      recognitionRef.current = recognition;
+      dictationBaseRef.current = text.trim() ? `${text.trimEnd()} ` : "";
+      recognition.onresult = (event) => {
+        let finalText = "";
+        let interimText = "";
+        for (let i = 0; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          if (result.isFinal) finalText += result[0].transcript;
+          else interimText += result[0].transcript;
+        }
+        setText(`${dictationBaseRef.current}${finalText}${interimText}`);
+      };
+      recognition.onerror = (event) => {
+        setIsListening(false);
+        recognitionRef.current = null;
+        if (event.error === "not-allowed" || event.error === "service-not-allowed") {
+          toast.error("Microphone permission was denied. Allow microphone access to dictate.");
+        } else if (event.error !== "no-speech" && event.error !== "aborted") {
+          toast.error("Voice dictation stopped unexpectedly. Please try again.");
+        }
+      };
+      recognition.onend = () => {
+        setIsListening(false);
+        recognitionRef.current = null;
+      };
+      recognition.start();
+      setIsListening(true);
+      toast.info("Listening. Speak naturally, then tap the microphone to stop.");
+    } catch {
+      setIsListening(false);
+      recognitionRef.current = null;
+      toast.error("Microphone could not start. Check browser permissions and try again.");
+    }
+  }
+
+  function handleSend() {
+    if (!text.trim() && !attachment) return;
+    const attachmentLabel = attachment ? `[Attached file: ${attachment.name}]` : "";
+    const fileContext = attachment?.textContent
+      ? `\n\n[File contents]\n${attachment.textContent}`
+      : "";
+    const messageText = [text.trim(), attachmentLabel].filter(Boolean).join("\n\n") + fileContext;
+
+    if (conversationId && onSendMessage) {
+      onSendMessage(messageText, attachment || undefined, liveSearch);
+      setText("");
+      setAttachment(null);
+      return;
+    }
+
+    const charId = selectedCharacter?.id || "default";
+    const charName = selectedCharacter?.name || "AI Assistant";
+    const charSeries = selectedCharacter?.series || "General";
+
+    createConversation.mutate(
+      {
+        data: {
+          characterId: charId,
+          characterName: charName,
+          animeSeries: charSeries,
+          mode: "chat",
+          title: `${charName} — Chat`,
+        },
+      },
+      {
+        onSuccess: (conv) => {
+          if (messageText) {
+            try {
+              sessionStorage.setItem("scripto-pending-message", JSON.stringify({
+                text: messageText,
+                attachment,
+                liveSearch,
+              }));
+            } catch {
+              toast.error("Attachment could not be prepared.");
+            }
+          }
+          setLocation(`/chat/${conv.id}`);
+          setText("");
+          setAttachment(null);
+        },
+        onError: () => {
+          toast.error("Failed to start conversation.");
+        },
+      },
+    );
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  }
+
+  function handleFileUpload(file: globalThis.File | undefined) {
+    if (!file) return;
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("File must be smaller than 15 MB.");
+      return;
+    }
+
+    const baseAttachment: ChatAttachment = { name: file.name, type: file.type || "application/octet-stream", size: file.size };
+    const isText = file.type.startsWith("text/")
+      || /\.(txt|md|csv|json|js|ts|tsx|jsx|html|css|xml|yaml|yml)$/i.test(file.name);
+    if (file.type.startsWith("image/")) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        if (typeof reader.result !== "string") {
+          toast.error("File could not be read.");
+          return;
+        }
+        setAttachment({ ...baseAttachment, dataUrl: reader.result });
+        toast.success(`${file.name} attached.`);
+      };
+      reader.onerror = () => toast.error("File could not be read.");
+      reader.readAsDataURL(file);
+      return;
+    }
+
+    if (!isText) {
+      setAttachment(baseAttachment);
+      toast.success(`${file.name} attached. Send a message to share it with the chat.`);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      if (typeof reader.result !== "string") {
+        toast.error("File could not be read.");
+        return;
+      }
+      setAttachment({ ...baseAttachment, textContent: reader.result.slice(0, 60_000) });
+      toast.success(`${file.name} attached.`);
+    };
+    reader.onerror = () => toast.error("File could not be read.");
+    reader.readAsText(file);
+  }
+
+  return (
+    <>
+      <AnimatePresence>
+        {uploadOpen && (
+          <>
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-30"
+              onClick={() => setUploadOpen(false)}
+            />
+            <motion.div
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 20 }}
+              transition={{ type: "spring", damping: 25, stiffness: 300 }}
+              className="fixed bottom-24 left-4 right-4 bg-[#0d0d0d] border border-purple-900/40 rounded-2xl p-4 z-40 shadow-2xl shadow-purple-900/20"
+            >
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-white text-sm font-semibold">Upload</span>
+                <button onClick={() => setUploadOpen(false)} aria-label="Close upload menu" data-testid="button-close-upload-menu" className="text-gray-500 hover:text-white">
+                  <X size={16} />
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => { fileRef.current?.click(); setUploadOpen(false); }}
+                data-testid="btn-upload-file"
+                className="flex w-full items-center gap-3 rounded-xl border border-purple-900/20 bg-[#111] p-4 text-left transition-all hover:border-purple-600/40"
+              >
+                <Upload size={22} className="text-purple-400" />
+                <div>
+                  <p className="text-sm font-semibold text-white">Upload files</p>
+                  <p className="mt-0.5 text-xs text-gray-500">Photos, videos, PDFs, documents and more · up to 15 MB</p>
+                </div>
+              </button>
+              <p className="mt-3 text-center text-[11px] text-gray-600">Files stay attached to this conversation until you send them.</p>
+            </motion.div>
+          </>
+        )}
+      </AnimatePresence>
+
+      <input
+        ref={fileRef}
+        type="file"
+        multiple={false}
+        className="hidden"
+        onChange={(event) => {
+          handleFileUpload(event.target.files?.[0]);
+          event.target.value = "";
+        }}
+      />
+
+      <div className="fixed bottom-0 left-0 right-0 z-40 px-4 pb-5 pt-2 bg-gradient-to-t from-[#050505] to-transparent pointer-events-none">
+        <div className="relative mx-auto max-w-5xl">
+          <motion.button
+            type="button"
+            onClick={toggleDictation}
+            aria-label={isListening ? "Stop voice dictation" : "Start voice dictation"}
+            aria-pressed={isListening}
+            data-testid="btn-voice-dictation"
+            animate={isListening
+              ? { scale: [1, 1.07, 1], boxShadow: ["0 5px 20px rgba(139,92,246,.24)", "0 0 30px rgba(6,182,212,.56)", "0 5px 20px rgba(139,92,246,.24)"] }
+              : { scale: 1, boxShadow: "0 5px 20px rgba(139,92,246,.24)" }}
+            transition={isListening
+              ? { duration: 1.25, repeat: Infinity, ease: "easeInOut" }
+              : { duration: 0.2, ease: "easeOut" }}
+            className="pointer-events-auto absolute -top-14 right-1 z-10 flex h-12 w-12 items-center justify-center rounded-full border border-cyan-200/40 bg-gradient-to-br from-violet-600 to-cyan-500 text-white shadow-lg shadow-violet-950/40 transition-colors hover:brightness-110 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-200 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950"
+            title={isListening ? "Stop voice dictation" : "Start voice dictation"}
+          >
+            <span
+              aria-hidden="true"
+              className={`pointer-events-none absolute inset-0 rounded-full border border-cyan-200/75 ${isListening ? "voice-mic-pulse" : "opacity-0"}`}
+            />
+            {isListening ? <MicOff size={19} /> : <Mic size={19} />}
+          </motion.button>
+          <motion.div
+            animate={{ boxShadow: text ? "0 0 30px rgba(147,51,234,0.4)" : "0 0 15px rgba(147,51,234,0.15)" }}
+            transition={{ duration: 0.3 }}
+            className="flex items-center gap-2 rounded-2xl border border-purple-900/40 bg-[#0d0d0d] px-3 py-2.5 pointer-events-auto"
+          >
+          <button
+            type="button"
+            onClick={() => setUploadOpen(!uploadOpen)}
+            aria-label={uploadOpen ? "Close upload menu" : "Open upload menu"}
+            data-testid="btn-upload-plus"
+            className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-purple-900/20 transition-colors flex-shrink-0"
+          >
+            <Plus size={18} className="text-purple-400" />
+          </button>
+
+          {attachment && (
+            <div className="absolute bottom-full left-0 right-0 mb-2 flex items-center gap-2 rounded-xl border border-purple-900/30 bg-[#111] px-3 py-2">
+              <FileIcon size={15} className="shrink-0 text-purple-300" />
+              <span className="min-w-0 flex-1 truncate text-xs text-gray-300">{attachment.name}</span>
+              <button type="button" onClick={() => setAttachment(null)} aria-label="Remove attachment" data-testid="button-remove-attachment" className="text-gray-500 hover:text-white">
+                <X size={14} />
+              </button>
+            </div>
+          )}
+          {conversationId && (
+            <button
+              type="button"
+              onClick={() => setLiveSearch((value) => !value)}
+              title={liveSearch ? "Live Search is on" : "Turn on Live Search"}
+              aria-label={liveSearch ? "Turn off live search" : "Turn on live search"}
+              aria-pressed={liveSearch}
+              data-testid="button-toggle-live-search"
+              className={`flex h-8 shrink-0 items-center gap-1 rounded-xl px-2 text-[11px] font-semibold transition-colors ${
+                liveSearch ? "bg-cyan-400/15 text-cyan-300" : "text-gray-500 hover:bg-cyan-400/10 hover:text-cyan-300"
+              }`}
+            >
+              <Globe2 size={15} />
+              <span className="hidden sm:inline">Live</span>
+            </button>
+          )}
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            placeholder="Type a message or pick a character..."
+            aria-label="Message"
+            data-testid="input-global-message"
+            className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 text-sm min-w-0"
+          />
+
+          <button
+            type="button"
+            onClick={handleScreenCapture}
+            aria-label="Capture and attach your screen"
+            data-testid="btn-screen-capture"
+            className="w-8 h-8 rounded-xl flex items-center justify-center hover:bg-cyan-900/20 transition-colors flex-shrink-0"
+          >
+            <Monitor size={17} className="text-cyan-400" />
+          </button>
+          <button
+            type="button"
+            onClick={handleSend}
+            aria-label="Send message"
+            data-testid="btn-send-message"
+            disabled={!text.trim() && !attachment}
+            className="w-8 h-8 rounded-xl flex items-center justify-center bg-purple-600 hover:bg-purple-500 transition-colors flex-shrink-0 disabled:opacity-40"
+          >
+            <Send size={14} className="text-white" />
+          </button>
+          </motion.div>
+        </div>
+      </div>
+    </>
+  );
+}

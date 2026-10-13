@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Scripto Frame AI"
+description = "An AI-powered anime character studio for creating characters, generating portraits and videos, and chatting with characters."
+version = "1.0.0"
+id = "artifacts/anime-ai-studio"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 21823
+
+[services.development]
+run = "pnpm --filter @workspace/anime-ai-studio run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/anime-ai-studio", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/anime-ai-studio/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "21823"
+BASE_PATH = "/"
