@@ -36,6 +36,10 @@ export interface TavilySearchResponse {
 }
 
 export const OPENROUTER_CHAT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
+const OPENROUTER_CHAT_FALLBACK_MODELS = [
+  "nvidia/nemotron-3.5-lightning:free",
+  "openrouter/free",
+];
 export const OPENROUTER_VISION_MODEL = "meta-llama/llama-4-scout";
 export const OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux-3-image";
 export const OPENROUTER_SPEECH_MODEL = "mistralai/voxtral-mini-tts-2603";
@@ -145,10 +149,12 @@ function parseOpenRouterEvent(block: string): { done: boolean; content: string }
   }
 
   if (event.error) {
+    const errorCode = event.error?.code;
     throw new ExternalProviderError(
       "OpenRouter",
       providerMessage(event, "OpenRouter returned a streaming error."),
-      typeof event.error?.code === "number" ? event.error.code : undefined,
+      typeof errorCode === "number" ? errorCode : undefined,
+      typeof errorCode === "string" ? errorCode : undefined,
     );
   }
 
@@ -195,6 +201,16 @@ async function* readOpenRouterStream(stream: ReadableStream<Uint8Array>): AsyncI
   }
 }
 
+function isModelUnavailableError(error: unknown): boolean {
+  if (!(error instanceof ExternalProviderError) || error.provider !== "OpenRouter") return false;
+
+  const modelUnavailableMessage =
+    /model.{0,60}(unavailable|not found)|(?:unavailable|not found).{0,60}model/i.test(error.message);
+  const modelUnavailableCode = /model[_ -]?(unavailable|not[_ -]?found)/i.test(error.code ?? "");
+
+  return modelUnavailableCode || (error.status === 404 && modelUnavailableMessage);
+}
+
 export async function streamOpenRouterChat(
   messages: OpenRouterMessage[],
   hasImage = false,
@@ -204,34 +220,62 @@ export async function streamOpenRouterChat(
     throw new ExternalProviderError("OpenRouter", "OPENROUTER_API_KEY is not configured.", undefined, "missing_api_key");
   }
 
-  const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: hasImage ? OPENROUTER_VISION_MODEL : OPENROUTER_CHAT_MODEL,
-      max_tokens: 8192,
-      stream: true,
-      messages,
-    }),
-  });
+  const models = hasImage
+    ? [OPENROUTER_VISION_MODEL]
+    : [OPENROUTER_CHAT_MODEL, ...OPENROUTER_CHAT_FALLBACK_MODELS];
 
-  if (!response.ok) {
-    const data = await readJson(response);
-    throw new ExternalProviderError(
-      "OpenRouter",
-      providerMessage(data, `OpenRouter chat request failed (${response.status}).`),
-      response.status,
-    );
-  }
+  return (async function* () {
+    for (let index = 0; index < models.length; index += 1) {
+      const model = models[index];
+      let emittedContent = false;
 
-  if (!response.body) {
-    throw new ExternalProviderError("OpenRouter", "OpenRouter returned an empty chat stream.");
-  }
+      try {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 8192,
+            stream: true,
+            messages,
+          }),
+        });
 
-  return readOpenRouterStream(response.body);
+        if (!response.ok) {
+          const data = await readJson(response);
+          throw new ExternalProviderError(
+            "OpenRouter",
+            providerMessage(data, `OpenRouter chat request failed (${response.status}).`),
+            response.status,
+            typeof data?.error?.code === "string" ? data.error.code : undefined,
+          );
+        }
+
+        if (!response.body) {
+          throw new ExternalProviderError("OpenRouter", "OpenRouter returned an empty chat stream.");
+        }
+
+        for await (const text of readOpenRouterStream(response.body)) {
+          emittedContent = true;
+          yield text;
+        }
+        return;
+      } catch (error) {
+        const hasNextModel = index < models.length - 1;
+        if (hasImage || emittedContent || !hasNextModel || !isModelUnavailableError(error)) {
+          throw error;
+        }
+
+        console.warn("OpenRouter chat model unavailable; trying the next configured fallback.", {
+          model,
+          status: (error as ExternalProviderError).status,
+        });
+      }
+    }
+  })();
 }
 
 export async function generateFluxImage(
