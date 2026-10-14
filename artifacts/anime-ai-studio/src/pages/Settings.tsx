@@ -116,7 +116,7 @@ export function SettingsPage() {
               </div>
               <div>
                 <div className="text-white font-semibold text-sm">AI Voice Assistant</div>
-                <div className="text-gray-500 text-xs">Works like a Google or Gemini assistant.</div>
+                <div className="text-gray-500 text-xs">Answers questions and helps with everyday tasks.</div>
               </div>
             </div>
 
@@ -224,7 +224,7 @@ export function SettingsPage() {
         <section>
           <button
             type="button"
-            onClick={() => toast.info("AI Character Studio v2.0", { description: "Powered by Gemini AI" })}
+            onClick={() => toast.info("AI Character Studio v2.0", { description: "Powered by OpenRouter AI" })}
             data-testid="button-about-app"
             className="w-full flex items-center gap-4 p-4 rounded-2xl bg-[#0d0d0d] border border-purple-900/15 text-left"
           >

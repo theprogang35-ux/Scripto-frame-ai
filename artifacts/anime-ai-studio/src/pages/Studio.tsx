@@ -42,17 +42,6 @@ const FEATURES = [
     page: "/create-edit",
   },
   {
-    id: "video-gen",
-    label: "AI Video Generation",
-    desc: "Turn a prompt into a short AI-generated video.",
-    icon: Video,
-    mode: "video-gen",
-    color: "#ec4899",
-    glow: "rgba(236,72,153,0.15)",
-    isPage: true,
-    page: "/video-generation",
-  },
-  {
     id: "writing",
     label: "Writing",
     desc: "Write a story, letter, announcement, or application.",

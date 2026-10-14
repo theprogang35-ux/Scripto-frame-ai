@@ -19,7 +19,6 @@ import { ChatPage } from "@/pages/Chat";
 import { SettingsPage } from "@/pages/Settings";
 import { CreateEditPage } from "@/pages/CreateEdit";
 import { CharacterCreatorPage } from "@/pages/CharacterCreator";
-import { VideoGenerationPage } from "@/pages/VideoGeneration";
 import { AuthLandingPage } from "@/pages/AuthLanding";
 import { OnboardingGate } from "@/components/OnboardingGate";
 
@@ -242,7 +241,6 @@ function AuthenticatedAppRoutes() {
             <Route path="/settings" component={SettingsPage} />
             <Route path="/create-edit" component={CreateEditPage} />
             <Route path="/character-creator" component={CharacterCreatorPage} />
-            <Route path="/video-generation" component={VideoGenerationPage} />
             <Route><Redirect to="/studio" /></Route>
           </Switch>
         </motion.div>

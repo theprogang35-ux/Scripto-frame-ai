@@ -601,7 +601,6 @@ main.min-h-screen {
 
 [data-testid="input-global-message"],
 [data-testid="input-image-prompt"],
-[data-testid="input-video-prompt"],
 textarea,
 input:not([type="color"]) {
   caret-color: #67e8f9;
@@ -611,17 +610,6 @@ input:not([type="color"]) {
 textarea::placeholder,
 input::placeholder {
   color: #708096;
-}
-
-[data-testid="workspace-video-generation"] {
-  background-color: rgba(15, 23, 42, .88) !important;
-  border-color: rgba(139, 92, 246, .24) !important;
-  box-shadow: 0 24px 70px rgba(2, 6, 23, .44), inset 0 1px rgba(255,255,255,.035);
-  backdrop-filter: blur(22px);
-}
-
-[data-testid="workspace-video-generation"] > div:first-child {
-  background-image: linear-gradient(90deg, #8b5cf6, #7c3aed 52%, #06b6d4) !important;
 }
 
 [class*="text-pink-"],

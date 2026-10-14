@@ -1,6 +1,6 @@
 # Scripto Frame AI
 
-An AI-powered anime character studio for creating characters, generating portraits and videos, and chatting with characters.
+An AI-powered anime character studio for creating characters, generating portraits, chatting with characters, and using live web search.
 
 ## Run & Operate
 
@@ -9,7 +9,7 @@ An AI-powered anime character studio for creating characters, generating portrai
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
 - `pnpm --filter @workspace/db run push` — push DB schema changes (dev only)
-- Required env: `DATABASE_URL` — Postgres connection string. Clerk keys are provisioned through Replit-managed Clerk. Gemini-powered chat and generation routes use `GEMINI_API_KEY`.
+- Required env: `DATABASE_URL` — Postgres connection string. Clerk keys are provisioned through Replit-managed Clerk. `OPENROUTER_API_KEY` powers chat, image generation, and speech; `TAVILY_API_KEY` powers Live Search.
 
 ## Stack
 
@@ -23,7 +23,7 @@ An AI-powered anime character studio for creating characters, generating portrai
 ## Where things live
 
 - `artifacts/anime-ai-studio` — React + Vite app and public assets
-- `artifacts/api-server/src/routes` — conversations, image/video generation, text-to-speech, and billing routes
+- `artifacts/api-server/src/routes` — conversations, image generation, text-to-speech, and billing routes
 - `lib/api-spec/openapi.yaml` — source API contract; regenerate clients with the codegen command above
 - `lib/db/src/schema` — Drizzle database schema
 
@@ -35,7 +35,7 @@ An AI-powered anime character studio for creating characters, generating portrai
 
 ## Product
 
-Users can create and edit anime characters, generate character images and videos, chat with characters, review conversation history, and adjust studio settings.
+Users can create and edit anime characters, generate character images, chat with characters, use Live Search, review conversation history, and adjust studio settings.
 
 ## User preferences
 
@@ -44,7 +44,7 @@ The user asked to import the public GitHub repository `theprogang35-ux/Scripto-f
 ## Gotchas
 
 - Keep `/api` available on the API service for REST endpoints and the Clerk frontend proxy.
-- Gemini-backed chat and media-generation features require a configured Gemini API key; billing also depends on the repository's Stripe connection flow.
+- Chat, image generation, and speech require `OPENROUTER_API_KEY`; Live Search requires `TAVILY_API_KEY`. Billing also depends on the repository's Stripe connection flow.
 
 ## Pointers
 

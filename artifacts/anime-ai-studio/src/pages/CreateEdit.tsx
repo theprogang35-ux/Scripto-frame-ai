@@ -96,7 +96,7 @@ function GeneratingLoader() {
       <motion.p className="text-purple-300 font-bold text-base mt-5" animate={{ opacity: [0.5, 1, 0.5] }} transition={{ duration: 1.5, repeat: Infinity }}>
         Generating your image...
       </motion.p>
-      <p className="text-gray-600 text-xs mt-1">Gemini AI is working on your creation.</p>
+      <p className="text-gray-600 text-xs mt-1">OpenRouter is working on your creation.</p>
     </div>
   );
 }
@@ -439,7 +439,7 @@ export function CreateEditPage() {
               </div>
               <div className="flex-1">
                 <div className="text-white font-bold text-lg">Image Generation</div>
-                <div className="text-gray-500 text-sm mt-1">Describe your idea and Gemini AI will create an image.</div>
+                <div className="text-gray-500 text-sm mt-1">Describe your idea and OpenRouter will create an image.</div>
                 <div className="flex items-center gap-1.5 mt-2">
                   <Sparkles size={11} className="text-purple-400" />
                   <span className="text-purple-400 text-xs">Anime, realistic, any style</span>

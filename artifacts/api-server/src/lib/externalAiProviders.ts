@@ -38,6 +38,7 @@ export interface TavilySearchResponse {
 export const OPENROUTER_CHAT_MODEL = "meta-llama/llama-3.3-70b-instruct";
 export const OPENROUTER_VISION_MODEL = "meta-llama/llama-4-scout";
 export const OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux-3-image";
+export const OPENROUTER_SPEECH_MODEL = "mistralai/voxtral-mini-tts-2603";
 
 async function readJson(response: Response): Promise<Record<string, any>> {
   const body = await response.text();
@@ -282,6 +283,51 @@ export async function generateFluxImage(
   return {
     imageUrl: `data:${mimeType};base64,${image.b64_json}`,
     mimeType,
+  };
+}
+
+export async function generateOpenRouterSpeech(
+  input: string,
+  voice: string,
+): Promise<{ audio: Buffer; mimeType: string }> {
+  const apiKey = process.env.OPENROUTER_API_KEY?.trim();
+  if (!apiKey) {
+    throw new ExternalProviderError("OpenRouter", "OPENROUTER_API_KEY is not configured.", undefined, "missing_api_key");
+  }
+
+  const response = await fetch("https://openrouter.ai/api/v1/audio/speech", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_SPEECH_MODEL,
+      input,
+      voice,
+      response_format: "mp3",
+    }),
+    signal: AbortSignal.timeout(90_000),
+  });
+
+  if (!response.ok) {
+    const data = await readJson(response);
+    throw new ExternalProviderError(
+      "OpenRouter",
+      providerMessage(data, `OpenRouter speech request failed (${response.status}).`),
+      response.status,
+    );
+  }
+
+  const audio = Buffer.from(await response.arrayBuffer());
+  if (!audio.length) {
+    throw new ExternalProviderError("OpenRouter", "OpenRouter returned no speech audio.");
+  }
+
+  const responseType = response.headers.get("content-type")?.split(";")[0]?.trim();
+  return {
+    audio,
+    mimeType: responseType?.startsWith("audio/") ? responseType : "audio/mpeg",
   };
 }
 
