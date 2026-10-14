@@ -15,10 +15,11 @@ interface GlobalInputBarProps {
   } | null;
   onCharacterNeeded?: () => void;
   conversationId?: number;
+  mode?: string;
   onSendMessage?: (text: string, attachment?: ChatAttachment, liveSearch?: boolean) => void;
 }
 
-export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversationId, onSendMessage }: GlobalInputBarProps) {
+export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversationId, mode, onSendMessage }: GlobalInputBarProps) {
   const [text, setText] = useState("");
   const [uploadOpen, setUploadOpen] = useState(false);
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
@@ -399,7 +400,9 @@ export function GlobalInputBar({ selectedCharacter, onCharacterNeeded, conversat
             value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message or pick a character..."
+            placeholder={mode === "workspace"
+              ? "Ask in any language for code, a website, or debugging..."
+              : "Type a message or pick a character..."}
             aria-label="Message"
             data-testid="input-global-message"
             className="flex-1 bg-transparent outline-none text-white placeholder:text-gray-600 text-sm min-w-0"

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { ArrowLeft, MoreHorizontal, Volume2, VolumeX, Loader2 } from "lucide-react";
+import { ArrowLeft, MoreHorizontal, Volume2, VolumeX, Loader2, Download } from "lucide-react";
 import { useLocation, useParams } from "wouter";
 import { useGetConversation, getGetConversationQueryKey } from "@workspace/api-client-react";
 import { GlobalInputBar } from "@/components/GlobalInputBar";
@@ -17,6 +17,42 @@ interface LocalMessage {
   createdAt: string;
   imageUrl: string | null;
   isStreaming?: boolean;
+}
+
+function extractHtmlDocument(content: string): string | null {
+  const htmlBlocks = content.matchAll(/```(?:html|htm)\s*\r?\n([\s\S]*?)```/gi);
+  for (const match of htmlBlocks) {
+    const document = match[1].trim();
+    if (/<(?:!doctype\s+html|html\b)/i.test(document) && /<\/html\s*>/i.test(document)) {
+      return document;
+    }
+  }
+
+  const document = content.trim();
+  return /^<(?:!doctype\s+html|html\b)/i.test(document) && /<\/html\s*>$/i.test(document)
+    ? document
+    : null;
+}
+
+function downloadHtmlDocument(content: string) {
+  const document = extractHtmlDocument(content);
+  if (!document) return;
+
+  const title = document.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1]
+    ?.replace(/<[^>]+>/g, " ")
+    .trim();
+  const filename = title
+    ?.normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/gi, "-")
+    .replace(/^-|-$/g, "")
+    .toLowerCase();
+  const blobUrl = URL.createObjectURL(new Blob([document], { type: "text/html;charset=utf-8" }));
+  const link = window.document.createElement("a");
+  link.href = blobUrl;
+  link.download = `${filename || "scripto-website"}.html`;
+  link.click();
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
 }
 
 function playBrowserVoice(
@@ -351,7 +387,11 @@ export function ChatPage() {
           >
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl border border-purple-300/20 bg-purple-400/10 text-2xl font-bold text-purple-100">{conv.characterName.slice(0, 1).toUpperCase()}</div>
             <h3 className="text-white font-bold text-lg mb-1">{conv.characterName}</h3>
-            <p className="text-gray-500 text-sm">Start the conversation!</p>
+            <p className="text-gray-500 text-sm">
+              {conv.mode === "workspace"
+                ? "Ask in any language for code, a website, or help debugging. Website HTML can be downloaded."
+                : "Start the conversation!"}
+            </p>
           </motion.div>
         )}
 
@@ -387,6 +427,17 @@ export function ChatPage() {
                         <span className="whitespace-pre-wrap">{msg.content}</span>
                       )}
                     </div>
+                    {!msg.isStreaming && conv.mode === "workspace" && extractHtmlDocument(msg.content) && (
+                      <button
+                        type="button"
+                        onClick={() => downloadHtmlDocument(msg.content)}
+                        data-testid={`button-download-html-${msg.id}`}
+                        className="mt-2 ml-1 flex items-center gap-1.5 rounded-lg border border-cyan-400/25 bg-cyan-400/10 px-3 py-1.5 text-xs font-medium text-cyan-200 transition-colors hover:bg-cyan-400/20"
+                      >
+                        <Download size={13} />
+                        Download HTML
+                      </button>
+                    )}
                     {/* TTS Button — shown only after message is complete */}
                     {!msg.isStreaming && msg.content && (
                       <motion.button
@@ -429,6 +480,7 @@ export function ChatPage() {
       <HistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
       <GlobalInputBar
         conversationId={convId}
+        mode={conv.mode}
         onSendMessage={sendMessage}
         selectedCharacter={{ id: conv.characterId, name: conv.characterName, series: conv.animeSeries }}
       />
