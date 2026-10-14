@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
-import { MoreHorizontal, Settings, ChevronRight, X, Download, Sparkles, AlertTriangle, RotateCcw, Clock, Video, FileText, MessageCircle, Image, PenLine, GraduationCap, Monitor, Drama } from "lucide-react";
+import { MoreHorizontal, Settings, ChevronRight, X, Download, Sparkles, AlertTriangle, RotateCcw, Clock, Video, FileText, MessageCircle, Image, PenLine, GraduationCap, Monitor, Drama, LockKeyhole } from "lucide-react";
 import { HistoryDrawer } from "@/components/HistoryDrawer";
 import { CharacterSelector } from "@/components/CharacterSelector";
 import { CharacterPortrait } from "@/components/CharacterPortrait";
@@ -40,6 +40,16 @@ const FEATURES = [
     glow: "rgba(249,115,22,0.15)",
     isPage: true,
     page: "/create-edit",
+  },
+  {
+    id: "video",
+    label: "AI Video Generation",
+    desc: "Create a short video from a prompt.",
+    icon: Video,
+    mode: "video",
+    color: "#ec4899",
+    glow: "rgba(236,72,153,0.15)",
+    isComingSoon: true,
   },
   {
     id: "writing",
@@ -342,16 +352,19 @@ export function StudioPage() {
                   <span className="text-white text-sm font-semibold">{feat.label}</span>
                   {isComingSoon && (
                     <span
-                      className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                      className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider"
                       style={{ backgroundColor: `${feat.color}25`, color: feat.color, border: `1px solid ${feat.color}50` }}
                     >
+                      <LockKeyhole size={10} aria-hidden="true" />
                       Coming Soon
                     </span>
                   )}
                 </div>
                 <div className="text-gray-500 text-[11px] mt-0.5 leading-4">{isComingSoon ? "This feature will be available soon." : feat.desc}</div>
               </div>
-              <ChevronRight size={16} className="text-gray-600 flex-shrink-0" />
+                  {isComingSoon
+                    ? <LockKeyhole size={15} className="flex-shrink-0 text-gray-600" aria-hidden="true" />
+                    : <ChevronRight size={16} className="text-gray-600 flex-shrink-0" />}
             </motion.button>
           );
         })}

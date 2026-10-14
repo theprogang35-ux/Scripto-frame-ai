@@ -60,7 +60,7 @@ router.post("/generate-image", async (req, res) => {
     const code = (err as { code?: string } | null)?.code;
     const message = err instanceof Error ? err.message : "Image generation request failed";
     console.error("OpenRouter image generation error:", { status, message });
-    const httpStatus = code === "missing_api_key" ? 503 : status === 429 ? 429 : 502;
+    const httpStatus = code === "missing_api_key" ? 503 : status === 402 ? 402 : status === 429 ? 429 : 502;
     return res.status(httpStatus).json({ error: getUserFacingProviderError(err) });
   }
 });

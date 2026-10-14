@@ -16,59 +16,6 @@ const EDIT_FILTERS = {
 
 type EditFilter = keyof typeof EDIT_FILTERS;
 
-type PuterImageOptions = {
-  provider: "openai-image-generation";
-  model: "gpt-image-1-mini";
-  quality: "low";
-  input_image?: string;
-};
-
-type PuterApi = {
-  ai: {
-    txt2img: (prompt: string, options?: PuterImageOptions) => Promise<HTMLImageElement>;
-  };
-};
-
-declare global {
-  interface Window {
-    puter?: PuterApi;
-  }
-}
-
-const PUTER_SCRIPT_SRC = "https://js.puter.com/v2/";
-
-function loadPuter(): Promise<PuterApi> {
-  if (typeof window === "undefined") {
-    return Promise.reject(new Error("Image provider is only available in a browser."));
-  }
-  if (window.puter?.ai?.txt2img) return Promise.resolve(window.puter);
-
-  return new Promise((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${PUTER_SCRIPT_SRC}"]`);
-    const checkReady = () => {
-      if (window.puter?.ai?.txt2img) {
-        resolve(window.puter);
-      } else {
-        reject(new Error("Puter image service could not be loaded. Check your internet connection and try again."));
-      }
-    };
-
-    if (existing) {
-      existing.addEventListener("load", checkReady, { once: true });
-      existing.addEventListener("error", () => reject(new Error("Puter image service could not be loaded.")), { once: true });
-      window.setTimeout(checkReady, 1500);
-      return;
-    }
-
-    const script = document.createElement("script");
-    script.src = PUTER_SCRIPT_SRC;
-    script.async = true;
-    script.onload = checkReady;
-    script.onerror = () => reject(new Error("Puter image service could not be loaded. Check your internet connection and try again."));
-    document.head.appendChild(script);
-  });
-}
-
 function GeneratingLoader() {
   return (
     <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#020208]">
@@ -291,28 +238,31 @@ export function CreateEditPage() {
     setGenerating(true);
     setImageError(null);
     try {
-      const puter = await loadPuter();
-      const prompt = generationReferencePhoto
-        ? `Use the attached photo as the main visual reference. Follow this instruction: ${description}. Preserve important subject details unless the instruction asks to change them.`
-        : description;
-      const image = await puter.ai.txt2img(prompt, {
-        provider: "openai-image-generation",
-        model: "gpt-image-1-mini",
-        quality: "low",
-        ...(generationReferencePhoto ? { input_image: generationReferencePhoto } : {}),
+      const response = await fetch("/api/generate-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          description,
+          ...(generationReferencePhoto ? { referenceImage: generationReferencePhoto } : {}),
+          size: "square",
+          style: "anime",
+        }),
       });
-      if (image?.src) {
-        setGeneratedImage(image.src);
-        toast.success("Your image is ready.");
-      } else {
-        throw new Error("The image response was empty. Please try again.");
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(typeof result?.error === "string" ? result.error : `Image generation failed (${response.status}).`);
       }
+      if (typeof result?.imageUrl !== "string" || !result.imageUrl.startsWith("data:image/")) {
+        throw new Error("OpenRouter returned no image data. Please try again.");
+      }
+      setGeneratedImage(result.imageUrl);
+      toast.success("Your image is ready.");
     } catch (error) {
       const providerMessage = error && typeof error === "object" && "message" in error
         ? String((error as { message?: unknown }).message || "")
         : "";
       const message = providerMessage
-        || (error instanceof Error ? error.message : "Puter image generation failed");
+        || (error instanceof Error ? error.message : "OpenRouter image generation failed");
       setImageError(message);
       toast.error(message);
     } finally {
@@ -611,7 +561,7 @@ export function CreateEditPage() {
                     Tip: More detail in your description can lead to a better image.
                   </p>
                   <p className="mt-2 text-center text-[11px] text-gray-700">
-                    Image generation uses the Puter / OpenAI image service. Photos are sent to a third-party provider; availability and usage limits depend on that provider.
+                    Image generation uses OpenRouter. Attached photos are sent to the provider; availability depends on your OpenRouter account credits.
                   </p>
                 </div>
               </div>
