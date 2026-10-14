@@ -35,7 +35,7 @@ export interface TavilySearchResponse {
   results: TavilySearchResult[];
 }
 
-export const OPENROUTER_CHAT_MODEL = "meta-llama/llama-3.3-70b-instruct";
+export const OPENROUTER_CHAT_MODEL = "nvidia/nemotron-3-ultra-550b-a55b:free";
 export const OPENROUTER_VISION_MODEL = "meta-llama/llama-4-scout";
 export const OPENROUTER_IMAGE_MODEL = "black-forest-labs/flux-3-image";
 export const OPENROUTER_SPEECH_MODEL = "mistralai/voxtral-mini-tts-2603";
